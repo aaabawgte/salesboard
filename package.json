@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/build.mjs",
+    "build:pages": "vite build --outDir dist/pages",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

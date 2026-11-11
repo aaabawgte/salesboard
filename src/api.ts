@@ -2,11 +2,42 @@ export type Employee = { id: number; name: string; quantity: number; cents: numb
 export type Analytics = { from: string; to: string; totalCents: number; total: number; quantity: number; leaderboard: Employee[]; employees: Employee[]; daily: Array<{ date: string; quantity: number; cents: number; value: number }>; rows: Array<{ date: string; employee: string; employee_id: number; quantity: number; cents: number; value: number }>; latestImport: { imported_at: string; file_name: string } | null };
 
 export const demoMode = import.meta.env.DEV && import.meta.env.MODE === 'development' && import.meta.env.VITE_DEMO_MODE === 'true';
+const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+const dashboardTokenKey = 'salesboard-dashboard-session';
+const adminTokenKey = 'salesboard-admin-session';
+
+function storedToken(key: string) {
+  return typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(key);
+}
+
+function rememberLogin(path: string, data: unknown) {
+  if (typeof sessionStorage === 'undefined' || !data || typeof data !== 'object' || !('token' in data) || typeof data.token !== 'string') return;
+  if (path === '/api/login') sessionStorage.setItem(dashboardTokenKey, data.token);
+  if (path === '/api/admin/login') sessionStorage.setItem(adminTokenKey, data.token);
+}
+
+function forgetSessions() {
+  if (typeof sessionStorage === 'undefined') return;
+  sessionStorage.removeItem(dashboardTokenKey);
+  sessionStorage.removeItem(adminTokenKey);
+}
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (demoMode) throw new Error('Demo način ne koristi bazu.');
-  const response = await fetch(path, { ...init, headers: { ...(init?.body instanceof FormData ? {} : { 'content-type': 'application/json' }), ...init?.headers } });
+  const dashboardToken = storedToken(dashboardTokenKey);
+  const adminToken = storedToken(adminTokenKey);
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
+      ...(dashboardToken ? { 'x-salesboard-session': dashboardToken } : {}),
+      ...(adminToken ? { 'x-salesboard-admin-session': adminToken } : {}),
+      ...init?.headers
+    }
+  });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error ?? 'Došlo je do pogreške.');
+  rememberLogin(path, data);
+  if (path === '/api/logout') forgetSessions();
   return data as T;
 }

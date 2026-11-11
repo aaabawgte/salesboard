@@ -5,6 +5,9 @@ import { schemaStatements } from './schema';
 type Env = { DB: any; DASHBOARD_PASSWORD_HASH: string; ADMIN_PASSWORD_HASH: string; SESSION_SECRET: string };
 const COOKIE_DASHBOARD = 'sb_session';
 const COOKIE_ADMIN = 'sb_admin';
+const HEADER_DASHBOARD = 'x-salesboard-session';
+const HEADER_ADMIN = 'x-salesboard-admin-session';
+const GITHUB_PAGES_ORIGIN = 'https://aaabawgte.github.io';
 const attempts = new Map<string, { count: number; reset: number }>();
 let schemaReady: Promise<void> | null = null;
 async function ensureSchema(db: any) {
@@ -54,11 +57,15 @@ async function createSession(db: any, kind: 'dashboard' | 'admin') {
   const tokenHash = await digest(raw);
   const expires = new Date(Date.now() + 30 * 86400_000).toISOString();
   await db.prepare('INSERT INTO sessions (token_hash, kind, expires_at) VALUES (?, ?, ?)').bind(tokenHash, kind, expires).run();
-  return `${kind === 'admin' ? COOKIE_ADMIN : COOKIE_DASHBOARD}=${raw}; Max-Age=2592000; Path=/; HttpOnly; Secure; SameSite=Lax`;
+  return {
+    token: raw,
+    cookie: `${kind === 'admin' ? COOKIE_ADMIN : COOKIE_DASHBOARD}=${raw}; Max-Age=2592000; Path=/; HttpOnly; Secure; SameSite=Lax`
+  };
 }
 
 async function session(request: Request, env: Env, kind: 'dashboard' | 'admin') {
-  const raw = cookie(request, kind === 'admin' ? COOKIE_ADMIN : COOKIE_DASHBOARD);
+  const raw = request.headers.get(kind === 'admin' ? HEADER_ADMIN : HEADER_DASHBOARD)
+    ?? cookie(request, kind === 'admin' ? COOKIE_ADMIN : COOKIE_DASHBOARD);
   if (!raw) return false;
   const row = await env.DB.prepare('SELECT kind FROM sessions WHERE token_hash = ? AND expires_at > ?').bind(await digest(raw), nowIso()).first();
   return row?.kind === kind;
@@ -168,7 +175,7 @@ async function restore(request: Request, env: Env, id: string) {
   return json({ ok: true });
 }
 
-async function app(request: Request, env: Env) {
+async function handle(request: Request, env: Env) {
   const url = new URL(request.url); const path = url.pathname;
   if (path === '/api/health') return json({ ok: true, service: 'salesboard', databaseConfigured: Boolean(env.DB), dashboardSecretConfigured: Boolean(env.DASHBOARD_PASSWORD_HASH), adminSecretConfigured: Boolean(env.ADMIN_PASSWORD_HASH) });
   if (path.startsWith('/api/')) {
@@ -180,7 +187,8 @@ async function app(request: Request, env: Env) {
       const ip = request.headers.get('cf-connecting-ip') ?? 'unknown'; if (rateLimited(ip)) return bad('Previše pokušaja. Pričekajte 15 minuta.', 429);
       const body = await request.json().catch(() => ({})); const password = normalize(body.password);
       if (!(await verifyPassword(password, env.DASHBOARD_PASSWORD_HASH))) return bad('Lozinka nije ispravna.', 401);
-      return json({ ok: true }, 200, { 'set-cookie': await createSession(env.DB, 'dashboard') });
+      const created = await createSession(env.DB, 'dashboard');
+      return json({ ok: true, token: created.token }, 200, { 'set-cookie': created.cookie });
     } catch (error) { console.error('dashboard_login_failed', error); return bad('Prijava trenutno nije dostupna.', 500); }
   }
   if (path === '/api/admin/login' && request.method === 'POST') {
@@ -188,7 +196,8 @@ async function app(request: Request, env: Env) {
       const ip = `${request.headers.get('cf-connecting-ip') ?? 'unknown'}-admin`; if (rateLimited(ip)) return bad('Previše pokušaja. Pričekajte 15 minuta.', 429);
       const body = await request.json().catch(() => ({}));
       if (!(await verifyPassword(normalize(body.password), env.ADMIN_PASSWORD_HASH))) return bad('Administratorska lozinka nije ispravna.', 401);
-      return json({ ok: true }, 200, { 'set-cookie': await createSession(env.DB, 'admin') });
+      const created = await createSession(env.DB, 'admin');
+      return json({ ok: true, token: created.token }, 200, { 'set-cookie': created.cookie });
     } catch (error) { console.error('admin_login_failed', error); return bad('Administratorska prijava trenutno nije dostupna.', 500); }
   }
   if (path === '/api/logout' && request.method === 'POST') return json({ ok: true }, 200, { 'set-cookie': `${COOKIE_DASHBOARD}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`, 'set-cookie-2': `${COOKIE_ADMIN}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax` });
@@ -203,6 +212,26 @@ async function app(request: Request, env: Env) {
   if (path === '/api/aliases' && request.method === 'POST') { if (!(await requireAdmin(request, env))) return bad('Administratorска autorizacija je potrebna.', 403); const body = await request.json(); const emp = await env.DB.prepare('SELECT id FROM employees WHERE id = ?').bind(Number(body.employeeId)).first(); if (!emp) return bad('Djelatnik nije pronađen.', 404); await env.DB.prepare('INSERT INTO employee_aliases (employee_id, alias, alias_key) VALUES (?, ?, ?)').bind(emp.id, normalizeEmployeeName(body.alias), employeeKey(body.alias)).run(); return json({ ok: true }); }
   if (path.startsWith('/api/')) return bad('Ruta nije pronađena.', 404);
   return serveAsset(request);
+}
+
+function withCors(response: Response) {
+  const headers = new Headers(response.headers);
+  headers.set('access-control-allow-origin', GITHUB_PAGES_ORIGIN);
+  headers.set('access-control-allow-methods', 'GET, POST, PUT, OPTIONS');
+  headers.set('access-control-allow-headers', `content-type, ${HEADER_DASHBOARD}, ${HEADER_ADMIN}`);
+  headers.set('access-control-max-age', '86400');
+  headers.append('vary', 'Origin');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function app(request: Request, env: Env) {
+  const url = new URL(request.url);
+  const fromGithubPages = request.headers.get('origin') === GITHUB_PAGES_ORIGIN;
+  if (fromGithubPages && request.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
+    return withCors(new Response(null, { status: 204 }));
+  }
+  const response = await handle(request, env);
+  return fromGithubPages && url.pathname.startsWith('/api/') ? withCors(response) : response;
 }
 
 // scripts/build.mjs embeds the built client in the Worker bundle.
