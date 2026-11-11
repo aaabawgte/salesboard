@@ -4,8 +4,8 @@
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
-  "background_color": "#f5f6f8",
-  "theme_color": "#f5f6f8",
+  "background_color": "#070A11",
+  "theme_color": "#070A11",
   "lang": "hr-HR",
   "icons": []
 }
