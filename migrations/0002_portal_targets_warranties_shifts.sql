@@ -1,0 +1,133 @@
+PRAGMA foreign_keys = ON;
+
+INSERT OR IGNORE INTO branches (code, name) VALUES
+  ('ARENA_PARK', 'Big Bang Zagreb Arena Park'),
+  ('SES_ARENA', 'Samsung Experience Store Arena'),
+  ('CCOE', 'Big Bang Zagreb CCO East'),
+  ('CCOW', 'Big Bang Zagreb CCO West'),
+  ('SVETA_NEDELJA', 'Big Bang Sveta Nedelja'),
+  ('OSIJEK_GACKA', 'Big Bang Osijek, Gacka'),
+  ('RIJEKA_MARTI', 'Big Bang Rijeka Marti'),
+  ('SPLIT_CCO', 'Big Bang Split CCO'),
+  ('ZADAR_CITY_PARK', 'Big Bang Zadar City Park'),
+  ('VARAZDIN', 'Big Bang Varaždin');
+
+UPDATE branches SET name = 'Big Bang Zagreb CCO West' WHERE code = 'CCOW';
+
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  display_name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('employee', 'manager', 'superadmin')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'active', 'rejected', 'suspended')),
+  branch_id INTEGER NOT NULL REFERENCES branches(id),
+  employee_id INTEGER REFERENCES employees(id),
+  approved_by TEXT,
+  approved_at TEXT,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS branch_settings (
+  branch_id INTEGER PRIMARY KEY REFERENCES branches(id) ON DELETE CASCADE,
+  leaderboard_visibility TEXT NOT NULL DEFAULT 'own' CHECK(leaderboard_visibility IN ('own', 'rank', 'full')),
+  updated_by INTEGER REFERENCES users(id),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO branch_settings (branch_id)
+SELECT id FROM branches;
+
+CREATE TABLE IF NOT EXISTS monthly_targets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  month TEXT NOT NULL CHECK(length(month) = 7),
+  working_days_total INTEGER NOT NULL CHECK(working_days_total BETWEEN 1 AND 31),
+  warranty_target_cents INTEGER NOT NULL CHECK(warranty_target_cents >= 0),
+  updated_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(branch_id, month)
+);
+
+CREATE TABLE IF NOT EXISTS warranty_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  product_group TEXT NOT NULL CHECK(product_group IN ('A', 'B', 'MOBILE', 'BIKE')),
+  name TEXT NOT NULL,
+  rate_basis_points INTEGER NOT NULL CHECK(rate_basis_points BETWEEN 0 AND 10000),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO warranty_rules (code, product_group, name, rate_basis_points, sort_order) VALUES
+  ('A_3P2', 'A', '3+2 godine', 900, 10),
+  ('A_2P3', 'A', '2+3 godine', 900, 20),
+  ('A_5P2', 'A', '5+2 godine', 1300, 30),
+  ('A_2P3_DAMAGE_5', 'A', '2+3 godine + lom i oštećenje (5 g.)', 1800, 40),
+  ('A_3P2_DAMAGE_5', 'A', '3+2 godine + lom i oštećenje (5 g.)', 1800, 50),
+  ('A_5P2_DAMAGE_7', 'A', '5+2 godine + lom i oštećenje (7 g.)', 2600, 60),
+  ('B_3P2', 'B', '3+2 godine', 900, 110),
+  ('B_2P3', 'B', '2+3 godine', 900, 120),
+  ('B_5P2', 'B', '5+2 godine', 1300, 130),
+  ('B_2P3_DAMAGE_5', 'B', '2+3 godine + lom i oštećenje (5 g.)', 1800, 140),
+  ('B_3P2_DAMAGE_5', 'B', '3+2 godine + lom i oštećenje (5 g.)', 1800, 150),
+  ('B_5P2_DAMAGE_7', 'B', '5+2 godine + lom i oštećenje (7 g.)', 2600, 160),
+  ('MOBILE_DAMAGE_1', 'MOBILE', 'Lom i oštećenje — 1 godina', 1200, 210),
+  ('MOBILE_DAMAGE_2', 'MOBILE', 'Lom i oštećenje — 2 godine', 2400, 220),
+  ('MOBILE_2P1', 'MOBILE', '2+1 godina produljenog jamstva', 800, 230),
+  ('BIKE_2P1', 'BIKE', '2+1 godina produljenog jamstva', 1400, 310),
+  ('BIKE_2P1_DAMAGE_3', 'BIKE', '2+1 godina + lom i oštećenje (3 g.)', 2700, 320);
+
+CREATE TABLE IF NOT EXISTS warranty_sales (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id INTEGER NOT NULL REFERENCES branches(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  employee_id INTEGER REFERENCES employees(id),
+  warranty_rule_id INTEGER NOT NULL REFERENCES warranty_rules(id),
+  product_name TEXT NOT NULL,
+  sold_at TEXT NOT NULL,
+  original_price_cents INTEGER NOT NULL CHECK(original_price_cents >= 0),
+  discount_type TEXT NOT NULL CHECK(discount_type IN ('none', 'percent', 'fixed')),
+  discount_value INTEGER NOT NULL DEFAULT 0 CHECK(discount_value >= 0),
+  discounted_price_cents INTEGER NOT NULL CHECK(discounted_price_cents >= 0),
+  warranty_cents INTEGER NOT NULL CHECK(warranty_cents >= 0),
+  total_cents INTEGER NOT NULL CHECK(total_cents >= 0),
+  installments INTEGER NOT NULL DEFAULT 1 CHECK(installments BETWEEN 1 AND 36),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS shift_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id INTEGER NOT NULL REFERENCES branches(id),
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  request_date TEXT NOT NULL,
+  request_type TEXT NOT NULL CHECK(request_type IN ('morning', 'afternoon', 'off')),
+  reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected', 'withdrawn')),
+  manager_note TEXT NOT NULL DEFAULT '',
+  processed_by INTEGER REFERENCES users(id),
+  processed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, request_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_status_branch ON users(status, branch_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_targets_branch_month ON monthly_targets(branch_id, month);
+CREATE INDEX IF NOT EXISTS idx_warranty_sales_branch_date ON warranty_sales(branch_id, sold_at);
+CREATE INDEX IF NOT EXISTS idx_warranty_sales_user_date ON warranty_sales(user_id, sold_at);
+CREATE INDEX IF NOT EXISTS idx_shift_requests_branch_date ON shift_requests(branch_id, request_date, status);
+CREATE INDEX IF NOT EXISTS idx_shift_requests_user_date ON shift_requests(user_id, request_date);

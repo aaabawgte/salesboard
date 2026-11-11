@@ -1,6 +1,16 @@
-# SalesBoard CCOW
+# SalesBoard
 
-Interna prodajna analitika za Big Bang — City Center One West, Zagreb.
+Interna prodajna analitika, jamstva i zahtjevi za smjene za deset Big Bang maloprodajnih jedinica.
+
+## Korisničke uloge
+
+- **Zaposlenik** vidi svoje rezultate, mjesečni target poslovnice, kalkulator i evidenciju jamstava te vlastite zahtjeve za smjene.
+- **Voditelj** uz puni pregled svoje poslovnice postavlja broj radnih dana, target jamstava u eurima i razinu vidljivosti poretka te odobrava ili odbija zahtjeve za smjene.
+- **Superadmin** odobrava registracije i upravlja postavkama svih poslovnica.
+
+Registracija koristi korisničko ime u obliku `ime.prezime`, lozinku i odabranu poslovnicu. Novi račun ostaje na čekanju dok ga superadmin ne odobri. Lozinke su spremljene kao PBKDF2 hash, a sesijski tokeni samo kao SHA-256 sažeci.
+
+Kalkulator jamstva koristi katalog tipova i postotaka iz projekta `project-bj`, ali ne uvozi njegove korisnike, zahtjeve ni prodaje. Jamstvo se računa na originalnu cijenu proizvoda prije popusta, a svi novčani iznosi u bazi čuvaju se u centima.
 
 ## Lokalno pokretanje
 
@@ -44,4 +54,4 @@ Uvoz je idempotentan po `(poslovnica, datum, djelatnik)`: preklapajući kumulati
 
 Za objavu na Sites pripremite `.openai/hosting.json` za odgovarajući projekt. Build ga kopira u `dist/.openai/hosting.json` kad je prisutan. Manifest je lokalna konfiguracija i izostavljen je iz Gita.
 
-Prije produkcijskog pokretanja povežite D1 bazu s Workerom pod bindingom `DB`, primijenite `migrations/0001_initial.sql` i konfigurirajte runtime secrets za prijavu.
+Prije produkcijskog pokretanja povežite D1 bazu s Workerom pod bindingom `DB`, redom primijenite migracije iz mape `migrations` i konfigurirajte runtime secrets za postojeći interni i administratorski pristup.

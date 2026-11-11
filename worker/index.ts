@@ -1,6 +1,7 @@
 import { aggregateRows, employeeKey, normalizeEmployeeName, parseWorkbook } from '../src/lib/importer';
 import * as XLSX from 'xlsx';
 import { schemaStatements } from './schema';
+import { handlePortalRequest, USER_SESSION_HEADER } from './portal';
 
 type Env = { DB: any; DASHBOARD_PASSWORD_HASH: string; ADMIN_PASSWORD_HASH: string; SESSION_SECRET: string };
 const COOKIE_DASHBOARD = 'sb_session';
@@ -182,6 +183,8 @@ async function handle(request: Request, env: Env) {
     try { await ensureSchema(env.DB); }
     catch (error) { console.error('database_bootstrap_failed', error); return bad('Baza podataka trenutno nije dostupna. Provjerite D1 binding i migraciju.', 503); }
   }
+  const portalResponse = await handlePortalRequest(request, env, { json, bad, requireAdmin });
+  if (portalResponse) return portalResponse;
   if (path === '/api/login' && request.method === 'POST') {
     try {
       const ip = request.headers.get('cf-connecting-ip') ?? 'unknown'; if (rateLimited(ip)) return bad('Previše pokušaja. Pričekajte 15 minuta.', 429);
@@ -217,8 +220,8 @@ async function handle(request: Request, env: Env) {
 function withCors(response: Response) {
   const headers = new Headers(response.headers);
   headers.set('access-control-allow-origin', GITHUB_PAGES_ORIGIN);
-  headers.set('access-control-allow-methods', 'GET, POST, PUT, OPTIONS');
-  headers.set('access-control-allow-headers', `content-type, ${HEADER_DASHBOARD}, ${HEADER_ADMIN}`);
+  headers.set('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  headers.set('access-control-allow-headers', `content-type, ${HEADER_DASHBOARD}, ${HEADER_ADMIN}, ${USER_SESSION_HEADER}`);
   headers.set('access-control-max-age', '86400');
   headers.append('vary', 'Origin');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });

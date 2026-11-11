@@ -2,20 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, BarChart3, CalendarDays, Check, ChevronRight, CloudOff, FileSpreadsheet, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Shield, Sun, Trophy, Upload, Users, X } from 'lucide-react';
+import { Activity, BarChart3, Calculator, CalendarClock, CalendarDays, Check, ChevronRight, CloudOff, FileSpreadsheet, Gauge, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Settings2, Shield, Sun, Target, TrendingUp, Trophy, Upload, Users, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api, demoMode } from './api';
-import type { Analytics, Employee } from './api';
+import type { Analytics, Employee, PortalUser } from './api';
 import ComparisonView from './Comparison';
 import { ChartTip, axisTick, hasNegative, seriesMotion, tooltipCursor } from './charts';
 import { ChartThemeContext, chartTokens, useChartTheme } from './lib/chart-theme';
 import { hrDate, hrMoney, hrNumber, initials, monthName } from './lib/format';
 import { withViewTransition } from './lib/motion';
 import { getMonthRange, getReportingMonth } from './lib/report-period';
+import { AccessScreen, AdminPortalTools, ManagerCenter, ShiftCenter, WarrantyCenter } from './Portal';
 import { Card, Empty, PeriodBar, Segmented, Skeleton, useMediaQuery, vtName } from './ui';
 import type { PeriodProps } from './ui';
 
-type Page = 'pregled' | 'poredak' | 'djelatnici' | 'usporedba' | 'povijest' | 'tv' | 'admin';
+type Page = 'pregled' | 'poredak' | 'djelatnici' | 'usporedba' | 'povijest' | 'jamstva' | 'smjene' | 'upravljanje' | 'tv' | 'admin';
 type ReportProps = PeriodProps & { data: Analytics };
 type ShellProps = {
   page: Page;
@@ -23,6 +24,9 @@ type ShellProps = {
   dark: boolean;
   onToggleTheme: () => void;
   onLogout: () => void;
+  items?: Array<{ id: Page; label: string; icon: LucideIcon }>;
+  subtitle?: string;
+  user?: PortalUser | null;
   children: ReactNode;
 };
 type ImportBatch = {
@@ -37,7 +41,7 @@ type ImportResult = { records: number; employees: number; dateFrom: string; date
 type SortKey = 'cents' | 'quantity' | 'avg';
 
 const nav: Array<{ id: Page; label: string; icon: LucideIcon }> = [
-  { id: 'pregled', label: 'Pregled', icon: LayoutDashboard }, { id: 'poredak', label: 'Poredak', icon: Trophy }, { id: 'djelatnici', label: 'Djelatnici', icon: Users }, { id: 'usporedba', label: 'Usporedba', icon: Activity }, { id: 'povijest', label: 'Povijest', icon: BarChart3 }, { id: 'tv', label: 'TV Mode', icon: CalendarDays }
+  { id: 'pregled', label: 'Pregled', icon: LayoutDashboard }, { id: 'poredak', label: 'Poredak', icon: Trophy }, { id: 'djelatnici', label: 'Djelatnici', icon: Users }, { id: 'usporedba', label: 'Usporedba', icon: Activity }, { id: 'povijest', label: 'Povijest', icon: BarChart3 }, { id: 'jamstva', label: 'Jamstva', icon: Calculator }, { id: 'smjene', label: 'Smjene', icon: CalendarClock }, { id: 'upravljanje', label: 'Postavke poslovnice', icon: Settings2 }, { id: 'tv', label: 'TV Mode', icon: CalendarDays }, { id: 'admin', label: 'Administracija', icon: Shield }
 ];
 const sortOptions = [['cents', 'Prodaja'], ['quantity', 'Količina'], ['avg', 'Prosjek']] as const;
 const shareText = (share: number | null) => share == null ? '—' : `${hrNumber(share * 100)} %`;
@@ -82,12 +86,12 @@ function Login({ onLogin }: { onLogin: () => void }) {
   </main>;
 }
 
-function Shell({ page, onNavigate, dark, onToggleTheme, onLogout, children }: ShellProps) {
+function Shell({ page, onNavigate, dark, onToggleTheme, onLogout, items = nav, subtitle = 'Big Bang Zagreb CCO West', user, children }: ShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const compact = useMediaQuery('(max-width: 1023px)');
   const sidebar = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
-  const current = nav.find(item => item.id === page)?.label ?? 'Administracija';
+  const current = items.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'SalesBoard';
 
   useEffect(() => { if (!compact) setMobileOpen(false); }, [compact]);
 
@@ -130,15 +134,14 @@ function Shell({ page, onNavigate, dark, onToggleTheme, onLogout, children }: Sh
     <aside id="app-sidebar" ref={sidebar} className={`sidebar ${mobileOpen ? 'open' : ''}`} inert={compact && !mobileOpen ? true : undefined} role={compact ? 'dialog' : undefined} aria-modal={compact && mobileOpen ? true : undefined} aria-label={compact ? 'Glavna navigacija' : undefined}>
       <div className="sidebar-head">
         <BrandMark small morph={!compact}/>
-        <div><strong>SalesBoard</strong><small>CCOW · Zagreb</small></div>
+        <div><strong>SalesBoard</strong><small>{subtitle}</small></div>
         <button className="icon-button mobile-close" onClick={() => setMobileOpen(false)} aria-label="Zatvori izbornik"><X size={18} aria-hidden/></button>
       </div>
       <nav aria-label="Glavna navigacija">
-        {nav.map(entry => item(entry.id, entry.label, entry.icon))}
-        <div className="nav-divider"/>
-        {item('admin', 'Administracija', Shield, <span className="nav-dot" aria-hidden/>)}
+        {items.map(entry => item(entry.id, entry.label, entry.icon, entry.id === 'admin' ? <span className="nav-dot" aria-hidden/> : undefined))}
       </nav>
       <div className="sidebar-bottom">
+        {user && <div className="sidebar-user"><span className="avatar">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>{user.role === 'employee' ? 'Zaposlenik' : user.role === 'manager' ? 'Voditelj' : 'Superadmin'}</small></div></div>}
         <button className="nav-item" onClick={onToggleTheme}>{dark ? <Sun size={17} aria-hidden/> : <Moon size={17} aria-hidden/>}<span>{dark ? 'Svijetli način' : 'Tamni način'}</span></button>
         <button className="nav-item logout" onClick={onLogout}><LogOut size={17} aria-hidden/><span>Odjava</span></button>
       </div>
@@ -214,6 +217,19 @@ function Dashboard({ data, month, setMonth, onRefresh, loading, setPage }: Repor
       <div><span className="eyebrow">BRZI UVID</span><h3>{top ? `${top.name} vodi poredak u ${monthName(month).replace(/\.$/, '')}.` : 'Spremno za prvi izvještaj.'}</h3><p>{top ? `${top.name} ostvaruje ${hrMoney(top.value)} neto prodaje i ${hrNumber(top.quantity)} usluga. Usporedbe se računaju samo iz uvezenih podataka.` : 'Nakon administratorskog uvoza statistika će se pojaviti ovdje.'}</p></div>
     </section>
   </>;
+}
+
+function TargetSummary({ data }: { data: Analytics }) {
+  const target = data.target;
+  if (!target) return null;
+  return <section className="metric-grid target-metrics">
+    <Card label="Mjesečni target jamstava" value={target.configured ? hrMoney(target.targetCents / 100) : 'Nije zadan'} detail={target.configured ? `${target.workingDaysTotal} radnih dana` : 'Voditelj unosi plan'} icon={Target} tone="accent" size="wide"/>
+    <Card label="Ostvareno jamstava" value={hrMoney(target.achievedCents / 100)} detail={target.configured ? `${Math.round(target.progress * 100)} % mjesečnog targeta` : 'evidentirana jamstva'} icon={TrendingUp} tone="accent"/>
+    <Card label="Dnevni target" value={target.configured ? hrMoney(target.dailyTargetCents / 100) : '—'} detail="mjesečni target ÷ radni dani" icon={Gauge}/>
+    <Card label="Preostalo do targeta" value={target.configured ? hrMoney(target.remainingCents / 100) : '—'} detail={target.configured ? `${target.remainingWorkingDays} procijenjenih radnih dana` : 'target nije konfiguriran'} icon={CalendarDays}/>
+    <Card label="Potrebno po danu" value={target.configured ? hrMoney(target.requiredDailyCents / 100) : '—'} detail="za ostvarenje do kraja mjeseca" icon={Activity}/>
+    <Card label="Napredak" value={target.configured ? `${Math.round(target.progress * 100)} %` : '—'} detail={target.progress >= 1 ? 'Target je ostvaren' : 'prema mjesečnom planu'} icon={Trophy} tone={target.progress >= 1 ? 'accent' : 'neutral'}/>
+  </section>;
 }
 
 function Leaderboard({ data, month, setMonth, onRefresh, loading, morphId, onOpen }: ReportProps & { morphId: number | null; onOpen: (employee: Employee) => void }) {
@@ -467,7 +483,7 @@ function Admin({ onRefresh, admin, setAdmin }: {
   </>;
 }
 
-export default function App() {
+function LegacyApp() {
   const [authenticated, setAuthenticated] = useState(false);
   const [admin, setAdmin] = useState(false);
   const [page, setPage] = useState<Page>('pregled');
@@ -574,6 +590,154 @@ export default function App() {
         {page === 'usporedba' && <ComparisonView {...report}/>}
         {page === 'povijest' && <History {...report}/>}
         {page === 'admin' && <Admin admin={admin} setAdmin={setAdmin} onRefresh={refresh}/>}
+      </div>}
+    </Shell>
+  </ChartThemeContext.Provider>;
+}
+
+export default function App() {
+  const [sessionMode, setSessionMode] = useState<'user' | 'legacy' | null>(null);
+  const [user, setUser] = useState<PortalUser | null>(null);
+  const [admin, setAdmin] = useState(false);
+  const [page, setPage] = useState<Page>('pregled');
+  const [month, setMonth] = useState(getReportingMonth);
+  const [dark, setDark] = useState(() => localStorage.getItem('sb-theme') !== 'light');
+  const [data, setData] = useState<Analytics | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [morphId, setMorphId] = useState<number | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [bootstrapping, setBootstrapping] = useState(true);
+  const authenticated = sessionMode !== null;
+
+  function selectMonth(value: string) {
+    if (/^\d{4}-(0[1-9]|1[0-2])$/.test(value) && !value.startsWith('0000-')) setMonth(value);
+  }
+
+  function refresh() {
+    setRefreshCount(count => count + 1);
+  }
+
+  function navigate(next: Page, animate: boolean) {
+    if (next === page) return;
+    const update = () => { setPage(next); window.scrollTo(0, 0); };
+    if (animate) withViewTransition(update, 'page');
+    else update();
+  }
+
+  function openProfile(employee: Employee) {
+    flushSync(() => setMorphId(employee.id));
+    withViewTransition(() => { setSelectedId(employee.id); setPage('djelatnici'); window.scrollTo(0, 0); }, 'profile-open');
+  }
+
+  function closeProfile() {
+    withViewTransition(() => setSelectedId(null), 'profile-close');
+  }
+
+  function logout() {
+    const endpoint = sessionMode === 'user' ? '/api/user/logout' : '/api/logout';
+    setSessionMode(null);
+    setUser(null);
+    setAdmin(false);
+    setData(null);
+    setOffline(false);
+    setPage('pregled');
+    if (!demoMode) void api(endpoint, { method: 'POST' }).catch(() => {});
+  }
+
+  useEffect(() => {
+    localStorage.setItem('sb-theme', dark ? 'dark' : 'light');
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#070A11' : '#F5F7FB');
+  }, [dark]);
+
+  useEffect(() => {
+    if (demoMode) { setBootstrapping(false); return; }
+    let active = true;
+    async function restore() {
+      try {
+        const result = await api<{ user: PortalUser }>('/api/me');
+        if (active) { setUser(result.user); setSessionMode('user'); }
+      } catch {
+        try {
+          const { from, to } = getMonthRange(month);
+          const result = await api<Analytics>(`/api/bootstrap?from=${from}&to=${to}`);
+          if (active) { setData(result); setSessionMode('legacy'); }
+        } catch {
+          // No active session is the expected first-visit state.
+        }
+      } finally {
+        if (active) setBootstrapping(false);
+      }
+    }
+    void restore();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    const request = new AbortController();
+    const { from, to } = getMonthRange(month);
+    async function load() {
+      setLoading(true);
+      try {
+        const result = demoMode
+          ? (await import('./demo')).createDemoAnalytics(from, to)
+          : await api<Analytics>(`${sessionMode === 'user' ? '/api/portal/analytics' : '/api/analytics'}?from=${from}&to=${to}`, { signal: request.signal });
+        if (!request.signal.aborted) {
+          setData(result);
+          if (sessionMode === 'user' && result.viewer) setUser(result.viewer);
+          setOffline(false);
+        }
+      } catch {
+        if (!request.signal.aborted) setOffline(true);
+      } finally {
+        if (!request.signal.aborted) setLoading(false);
+      }
+    }
+    void load();
+    return () => request.abort();
+  }, [authenticated, sessionMode, month, refreshCount]);
+
+  const tokens = dark ? chartTokens.dark : chartTokens.light;
+  const toggleTheme = () => withViewTransition(() => setDark(value => !value), 'theme');
+
+  if (bootstrapping) return <main className="loading"><span className="spinner"/><span>Provjera prijave…</span></main>;
+  if (!authenticated) return <AccessScreen onUserLogin={loggedIn => withViewTransition(() => { setUser(loggedIn); setSessionMode('user'); setPage('pregled'); }, 'login')} onLegacyLogin={() => withViewTransition(() => { setUser(null); setSessionMode('legacy'); setPage('pregled'); }, 'login')}/>;
+  if (!data && offline) return <main className="offline"><span className="state-icon"><CloudOff size={26} aria-hidden/></span><h2>Veza je privremeno nedostupna</h2><p>Podaci se nisu mogli učitati. Provjerite mrežu i pokušajte ponovno.</p><button className="primary-button" onClick={refresh}>Pokušaj ponovno <RefreshCw size={16} aria-hidden/></button></main>;
+  if (data && page === 'tv') return <TvMode data={data} onExit={() => navigate('pregled', true)}/>;
+
+  const isEmployee = user?.role === 'employee';
+  const fullLeaderboard = !isEmployee || user?.leaderboardVisibility === 'full';
+  const maySeePosition = !isEmployee || user?.leaderboardVisibility !== 'own';
+  const allowedPages = sessionMode === 'legacy'
+    ? new Set<Page>(['pregled', 'poredak', 'djelatnici', 'usporedba', 'povijest', 'tv', 'admin'])
+    : new Set<Page>([
+      'pregled', 'jamstva', 'smjene',
+      ...(maySeePosition ? ['poredak' as Page] : []),
+      ...(fullLeaderboard ? ['djelatnici' as Page, 'usporedba' as Page, 'povijest' as Page] : []),
+      ...(!isEmployee ? ['upravljanje' as Page, 'tv' as Page] : []),
+      ...(user?.role === 'superadmin' ? ['admin' as Page] : [])
+    ]);
+  const items = nav.filter(item => allowedPages.has(item.id));
+  const selected = data?.employees.find(employee => employee.id === selectedId) ?? null;
+  const report = data && { data, month, setMonth: selectMonth, onRefresh: refresh, loading };
+  const subtitle = user?.branch.name ?? 'Big Bang Zagreb CCO West';
+
+  return <ChartThemeContext.Provider value={tokens}>
+    <Shell page={page} onNavigate={navigate} dark={dark} onToggleTheme={toggleTheme} onLogout={logout} items={items} subtitle={subtitle} user={user}>
+      {!report ? <Skeleton/> : <div className="page">
+        {page === 'pregled' && <><TargetSummary data={data}/><Dashboard {...report} setPage={next => navigate(next, true)}/></>}
+        {page === 'poredak' && <Leaderboard {...report} morphId={morphId} onOpen={openProfile}/>}
+        {page === 'djelatnici' && <EmployeePage {...report} selected={selected} morphId={morphId} onOpen={openProfile} onBack={closeProfile}/>}
+        {page === 'usporedba' && <ComparisonView {...report}/>}
+        {page === 'povijest' && <History {...report}/>}
+        {page === 'jamstva' && user && <WarrantyCenter user={user} onSaved={refresh}/>}
+        {page === 'smjene' && user && <ShiftCenter user={user}/>}
+        {page === 'upravljanje' && user && <ManagerCenter user={user} month={month} onUpdated={refresh}/>}
+        {page === 'admin' && sessionMode === 'legacy' && <><Admin admin={admin} setAdmin={setAdmin} onRefresh={refresh}/>{admin && <AdminPortalTools month={month} onUpdated={refresh}/>}</>}
+        {page === 'admin' && user?.role === 'superadmin' && <><div className="section-title"><div><span className="eyebrow">CENTRALNO UPRAVLJANJE</span><h1>Superadmin</h1><p>Odobravanje korisnika i postavke svih poslovnica.</p></div></div><AdminPortalTools month={month} onUpdated={refresh}/></>}
       </div>}
     </Shell>
   </ChartThemeContext.Provider>;
