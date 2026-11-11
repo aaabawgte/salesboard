@@ -1,0 +1,27 @@
+.DS_Store
+node_modules/
+/dist/
+/coverage/
+/worker/generated-assets.ts
+*.tsbuildinfo
+
+# Lokalna konfiguracija i podaci za hosting
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+/.openai/
+/.wrangler/
+
+# Izvještaji i lokalne baze
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.csv
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*

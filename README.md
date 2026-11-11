@@ -1,0 +1,47 @@
+# SalesBoard CCOW
+
+Interna prodajna analitika za Big Bang — City Center One West, Zagreb.
+
+## Lokalno pokretanje
+
+Koristite Node.js 24. Za lokalni pregled sučelja s izmišljenim podacima pokrenite:
+
+```bash
+npm ci
+VITE_DEMO_MODE=true npm run dev
+```
+
+Istu postavku možete spremiti u `.env.local`. U demo načinu kliknite **Prijava** bez lozinke. Demo je dostupan u razvojnom poslužitelju, a produkcijski build izostavlja demo podatke.
+
+## Provjera i build
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```
+
+Build izrađuje React klijent u `dist/client`, Worker u `dist/server/index.js` i kopira migracije u `dist/drizzle`. Za ove provjere dovoljna je svježa kopija repozitorija s instaliranim ovisnostima.
+
+## Sigurna konfiguracija lozinki
+
+Generirajte hash lokalno, bez slanja lozinki u chat ili repozitorij:
+
+```bash
+npm run hash-password -- "DUGA_DASHBOARD_LOZINKA"
+npm run hash-password -- "DUGA_ADMIN_LOZINKA"
+```
+
+Dobivene hashove postavite kao Cloudflare/Sites runtime secrets `DASHBOARD_PASSWORD_HASH` i `ADMIN_PASSWORD_HASH`. Lozinke, hashove i izvještaje držite izvan repozitorija.
+
+## Dnevni uvoz
+
+Administrator se prijavi u `Administracija`, odabere `.xlsx` izvještaj i pokrene uvoz. Parser zahtijeva `Datum`, `POSLOVNICA`, `KOMERCIJALIST`, `KOLIČINA` i `VREDNOST`, filtrira CCOW, normalizira hrvatske datume/decimale i sprema novčane vrijednosti u cijelim centima.
+
+Uvoz je idempotentan po `(poslovnica, datum, djelatnik)`: preklapajući kumulativni izvještaj ažurira postojeći dnevni zapis, ali ga ne zbraja drugi put. Izvorni redovi se ne tretiraju kao računi. Za svaki uvoz sprema se fingerprint, upozorenja i prije/poslije vrijednost, čime je moguć rollback.
+
+## Cloudflare / Sites
+
+Za objavu na Sites pripremite `.openai/hosting.json` za odgovarajući projekt. Build ga kopira u `dist/.openai/hosting.json` kad je prisutan. Manifest je lokalna konfiguracija i izostavljen je iz Gita.
+
+Prije produkcijskog pokretanja povežite D1 bazu s Workerom pod bindingom `DB`, primijenite `migrations/0001_initial.sql` i konfigurirajte runtime secrets za prijavu.
