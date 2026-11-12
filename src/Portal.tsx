@@ -47,7 +47,11 @@ export function AccessScreen({ onUserLogin, onLegacyLogin }: {
         await api('/api/login', { method: 'POST', body: JSON.stringify({ password }) });
         onLegacyLogin();
       } else if (mode === 'register') {
-        const result = await api<{ message: string }>('/api/register', { method: 'POST', body: JSON.stringify({ username, displayName, password, branchId: Number(branchId), role }) });
+        const result = await api<{ message: string }>('/api/register', {
+          method: 'POST',
+          headers: { 'content-type': 'text/plain;charset=UTF-8' },
+          body: JSON.stringify({ username, displayName, password, branchId: Number(branchId), role })
+        });
         setMessage(result.message);
         setPassword('');
       } else {
