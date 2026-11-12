@@ -197,16 +197,19 @@ function Shell({ page, onNavigate, dark, onToggleTheme, onLogout, navigation, ca
 
 function Dashboard({ data, month, setMonth, onRefresh, loading, setPage }: ReportProps & { setPage: (page: Page) => void }) {
   const tokens = useChartTheme();
-  const top = data.leaderboard[0];
-  const bars = data.leaderboard.slice(0, 6);
+  const canSeeIndividualResults = data.viewer?.role !== 'employee' || data.leaderboardVisibility === 'full';
+  const top = canSeeIndividualResults ? data.leaderboard[0] : null;
+  const bars = canSeeIndividualResults ? data.leaderboard.slice(0, 6) : [];
   const negativeDaily = hasNegative(data.daily, 'value');
   return <>
     <PeriodBar month={month} setMonth={setMonth} onRefresh={onRefresh} loading={loading}/>
     <section className="metric-grid">
-      <Card label="Ukupna prodaja" value={hrMoney(data.total)} detail="neto vrijednost usluga" icon={BarChart3} tone={data.total < 0 ? 'negative' : 'accent'} size="hero"/>
-      <Card label="Prodano usluga" value={hrNumber(data.quantity)} detail="neto količina" icon={Activity}/>
-      <Card label="Prosječna vrijednost" value={data.quantity ? hrMoney(data.total / data.quantity) : '—'} detail="po usluzi" icon={CalendarDays}/>
-      <Card label="Najbolji prodavač" value={top?.name ?? '—'} detail={top ? `${hrMoney(top.value)} neto prodaja` : 'Nema podataka'} icon={Trophy} size="wide" textValue/>
+      <Card label="Ukupna prodaja poslovnice" value={hrMoney(data.total)} detail="ukupna neto vrijednost poslovnice" icon={BarChart3} tone={data.total < 0 ? 'negative' : 'accent'} size="hero"/>
+      <Card label="Prodano usluga" value={hrNumber(data.quantity)} detail="ukupno u poslovnici" icon={Activity}/>
+      <Card label="Prosječna vrijednost" value={data.quantity ? hrMoney(data.total / data.quantity) : '—'} detail="po usluzi poslovnice" icon={CalendarDays}/>
+      {canSeeIndividualResults
+        ? <Card label="Najbolji prodavač" value={top?.name ?? '—'} detail={top ? `${hrMoney(top.value)} neto prodaja` : 'Nema podataka'} icon={Trophy} size="wide" textValue/>
+        : <Card label="Prikaz poslovnice" value={data.branch?.name ?? 'Poslovnica'} detail="bez pojedinačnih rezultata djelatnika" icon={Shield} size="wide" textValue/>}
       <Card label="Dani s podacima" value={hrNumber(data.daily.length)} detail="u odabranom mjesecu" icon={CalendarDays}/>
       <Card label="Zadnje ažuriranje" value={data.latestImport ? new Intl.DateTimeFormat('hr-HR', { day: '2-digit', month: 'short' }).format(new Date(data.latestImport.imported_at)) : '—'} detail={data.latestImport ? new Intl.DateTimeFormat('hr-HR', { timeStyle: 'short', timeZone: 'Europe/Zagreb' }).format(new Date(data.latestImport.imported_at)) : 'Još nema uvoza'} icon={RefreshCw}/>
     </section>
@@ -225,7 +228,7 @@ function Dashboard({ data, month, setMonth, onRefresh, loading, setPage }: Repor
           </AreaChart>
         </ResponsiveContainer> : <Empty/>}
       </article>
-      <article className="panel chart-panel">
+      {canSeeIndividualResults && <article className="panel chart-panel">
         <div className="panel-head"><div><span className="eyebrow">RASPOVJETA</span><h3>Po djelatniku</h3></div><button className="text-button" onClick={() => setPage('poredak')}>Poredak <ChevronRight size={15} aria-hidden/></button></div>
         {bars.length ? <ResponsiveContainer width="100%" height={Math.min(280, Math.max(168, bars.length * 52))}>
           <BarChart data={bars} layout="vertical" margin={{ left: 0, right: 64, top: 0, bottom: 0 }} barCategoryGap={12}>
@@ -238,12 +241,15 @@ function Dashboard({ data, month, setMonth, onRefresh, loading, setPage }: Repor
             </Bar>
           </BarChart>
         </ResponsiveContainer> : <Empty/>}
-      </article>
+      </article>}
     </section>
     <section className="panel insight">
       <div className="insight-icon"><Activity size={18} aria-hidden/></div>
       {/* monthName already ends with "." in hr-HR, so the sentence must not add a second one. */}
-      <div><span className="eyebrow">BRZI UVID</span><h3>{top ? `${top.name} vodi poredak u ${monthName(month).replace(/\.$/, '')}.` : 'Spremno za prvi izvještaj.'}</h3><p>{top ? `${top.name} ostvaruje ${hrMoney(top.value)} neto prodaje i ${hrNumber(top.quantity)} usluga. Usporedbe se računaju samo iz uvezenih podataka.` : 'Nakon administratorskog uvoza statistika će se pojaviti ovdje.'}</p></div>
+      <div><span className="eyebrow">BRZI UVID</span>{canSeeIndividualResults
+        ? <><h3>{top ? `${top.name} vodi poredak u ${monthName(month).replace(/\.$/, '')}.` : 'Spremno za prvi izvještaj.'}</h3><p>{top ? `${top.name} ostvaruje ${hrMoney(top.value)} neto prodaje i ${hrNumber(top.quantity)} usluga. Usporedbe se računaju samo iz uvezenih podataka.` : 'Nakon administratorskog uvoza statistika će se pojaviti ovdje.'}</p></>
+        : <><h3>Poslovnica je u {monthName(month).replace(/\.$/, '')} ostvarila {hrMoney(data.total)}.</h3><p>Prikazan je ukupni rezultat poslovnice bez pojedinačnih iznosa drugih djelatnika.</p></>}
+      </div>
     </section>
   </>;
 }
@@ -264,6 +270,7 @@ function TargetSummary({ data }: { data: Analytics }) {
 function Leaderboard({ data, month, setMonth, onRefresh, loading, morphId, onOpen }: ReportProps & { morphId: number | null; onOpen: (employee: Employee) => void }) {
   const [sort, setSort] = useState<SortKey>('cents');
   const list = [...data.leaderboard].sort((a, b) => sort === 'quantity' ? b.quantity - a.quantity || b.cents - a.cents : sort === 'avg' ? (b.avg ?? -Infinity) - (a.avg ?? -Infinity) || b.cents - a.cents : b.cents - a.cents || b.quantity - a.quantity || a.name.localeCompare(b.name, 'hr'));
+  const rankOnlyView = data.viewer?.role === 'employee' && data.leaderboardVisibility === 'rank';
   return <>
     <PeriodBar month={month} setMonth={setMonth} onRefresh={onRefresh} loading={loading}/>
     <div className="section-title">
@@ -276,8 +283,9 @@ function Leaderboard({ data, month, setMonth, onRefresh, loading, morphId, onOpe
           <thead><tr><th className="col-rank">#</th><th>Djelatnik</th><th className="num col-share">Udio</th><th className="num col-optional">Usluge</th><th className="num col-optional">Prosjek</th><th className="num right">Neto prodaja</th></tr></thead>
           <tbody>{list.map((employee, index) => {
             const names = morphId === employee.id ? morphNames(employee.id) : null;
+            const displayedRank = rankOnlyView ? employee.rank : index + 1;
             return <tr key={employee.id} onClick={() => onOpen(employee)} className={sort === 'cents' ? '' : 'resorted'}>
-              <td className="col-rank"><span className={`rank ${index < 3 ? 'medal' : ''}`}>{index + 1}</span></td>
+              <td className="col-rank"><span className={`rank ${displayedRank <= 3 ? 'medal' : ''}`}>{displayedRank}</span></td>
               <td><div className="person">
                 <span className="avatar" style={vtName(names?.avatar, 'emp-avatar')}>{initials(employee.name)}</span>
                 <div className="person-text">

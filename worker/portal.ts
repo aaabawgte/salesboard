@@ -191,15 +191,17 @@ async function portalAnalytics(request: Request, env: Env, user: PortalUser) {
   const visibleIds = maySeeFull ? null : new Set(user.employee_id == null ? [] : [user.employee_id]);
   const visibleRows = visibleIds ? rows.filter((row: any) => visibleIds.has(row.employee_id)) : rows;
   const leaderboard = maySeeFull ? fullLeaderboard : fullLeaderboard.filter(employee => visibleIds?.has(employee.id));
+  // The overview always shows branch-wide aggregates. Row-level and employee-level
+  // data remain filtered below, so employees cannot infer a colleague's result.
   const byDay = new Map<string, any>();
-  for (const row of visibleRows) {
+  for (const row of rows) {
     const day = byDay.get(row.date) ?? { date: row.date, quantity: 0, cents: 0 };
     day.quantity += row.quantity;
     day.cents += row.cents;
     byDay.set(row.date, day);
   }
   const daily = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)).map(day => ({ ...day, value: day.cents / 100 }));
-  const totalCents = visibleRows.reduce((sum: number, row: any) => sum + row.cents, 0);
+  const totalCents = branchTotalCents;
   const latestImport = await env.DB.prepare(`SELECT ib.imported_at, ib.file_name FROM import_batches ib
     WHERE ib.status = 'success' AND EXISTS (SELECT 1 FROM sales_daily s WHERE s.source_import_id = ib.id AND s.branch_id = ?)
     ORDER BY ib.imported_at DESC LIMIT 1`).bind(user.branch_id).first();
@@ -210,7 +212,7 @@ async function portalAnalytics(request: Request, env: Env, user: PortalUser) {
     to,
     totalCents,
     total: totalCents / 100,
-    quantity: visibleRows.reduce((sum: number, row: any) => sum + row.quantity, 0),
+    quantity: rows.reduce((sum: number, row: any) => sum + row.quantity, 0),
     leaderboard,
     employees: leaderboard,
     daily,
