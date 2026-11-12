@@ -189,7 +189,16 @@ async function portalAnalytics(request: Request, env: Env, user: PortalUser) {
   const branchResult = await env.DB.prepare(`SELECT b.id, b.code, b.name,
       COALESCE(SUM(s.quantity), 0) AS quantity, COALESCE(SUM(s.value_cents), 0) AS cents
     FROM branches b
-    LEFT JOIN sales_daily s ON s.branch_id = b.id AND s.sale_date BETWEEN ? AND ?
+    LEFT JOIN (
+      SELECT branch_id, sale_date, quantity, value_cents FROM branch_daily_totals
+      UNION ALL
+      SELECT sd.branch_id, sd.sale_date, sd.quantity, sd.value_cents
+      FROM sales_daily sd
+      WHERE NOT EXISTS (
+        SELECT 1 FROM branch_daily_totals total
+        WHERE total.branch_id = sd.branch_id AND total.sale_date = sd.sale_date
+      )
+    ) s ON s.branch_id = b.id AND s.sale_date BETWEEN ? AND ?
     GROUP BY b.id, b.code, b.name`).bind(from, to).all();
   const rankedBranches = (branchResult.results ?? [])
     .map((branch: any) => ({ id: Number(branch.id), code: String(branch.code), name: String(branch.name), quantity: Number(branch.quantity), cents: Number(branch.cents) }))

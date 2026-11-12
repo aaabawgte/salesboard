@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
-import { aggregateRows, branchCode, employeeKey, isCCOWBranch, parseDecimal, parseWorkbook, toIsoDate } from '../src/lib/importer';
+import { aggregateBranchTotals, aggregateRows, branchCode, employeeKey, isCCOWBranch, parseDecimal, parseWorkbook, toIsoDate } from '../src/lib/importer';
 
 function workbook(rows: Record<string, unknown>[]) {
   const wb = XLSX.utils.book_new();
@@ -66,5 +66,18 @@ describe('SalesBoard Excel importer', () => {
     const result = aggregateRows(rows);
     expect(result).toHaveLength(2);
     expect(result.map(row => row.branchCode).sort()).toEqual(['CCOE', 'CCOW']);
+  });
+
+  it('creates company-wide daily branch totals without exposing employee rows', () => {
+    const rows = parseWorkbook(workbook([
+      { Datum: '09.02.2024', POSLOVNICA: 'Big Bang Zagreb CCO West', KOMERCIJALIST: 'Ana Primjer', KOLIČINA: 1, VREDNOST: 10 },
+      { Datum: '09.02.2024', POSLOVNICA: 'Big Bang Zagreb CCO West', KOMERCIJALIST: 'Ivan Primjer', KOLIČINA: 2, VREDNOST: 20 },
+      { Datum: '09.02.2024', POSLOVNICA: 'Big Bang Zagreb CCO East', KOMERCIJALIST: 'Marko Primjer', KOLIČINA: 4, VREDNOST: 50 }
+    ])).rows;
+
+    expect(aggregateBranchTotals(rows)).toEqual([
+      { branchCode: 'CCOW', date: '2024-02-09', quantity: 3, cents: 3000 },
+      { branchCode: 'CCOE', date: '2024-02-09', quantity: 4, cents: 5000 }
+    ]);
   });
 });
