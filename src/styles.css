@@ -833,6 +833,30 @@ tbody tr.resorted { animation: fade-in var(--dur-std) var(--ease-out); }
 .mini-bar { width: 64px; height: 4px; overflow: hidden; border-radius: var(--radius-full); background: var(--accent-softer); }
 .mini-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width var(--dur-morph) var(--ease-out); }
 .mini-bar i.negative { background: var(--negative); }
+.branch-ranking-table tbody tr { cursor: default; }
+.branch-ranking-table tbody tr.current-branch { background: var(--accent-softer); }
+.branch-ranking-table tbody tr.current-branch td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.branch-avatar { border-radius: var(--radius-sm); }
+.branch-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 3px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.branch-meta em {
+  padding: 3px 6px;
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+}
 
 /* ---------- Employees & profile ---------- */
 .employee-grid {

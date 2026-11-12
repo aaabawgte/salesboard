@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, BarChart3, Calculator, CalendarClock, CalendarDays, Check, ChevronDown, ChevronRight, CloudOff, Eye, FileSpreadsheet, Gauge, KeyRound, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Settings2, Shield, Sun, Target, TrendingUp, Trophy, Upload, UserRoundCheck, Users, X } from 'lucide-react';
+import { Activity, BarChart3, Building2, Calculator, CalendarClock, CalendarDays, Check, ChevronDown, ChevronRight, CloudOff, Eye, FileSpreadsheet, Gauge, KeyRound, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Settings2, Shield, Sun, Target, TrendingUp, Trophy, Upload, UserRoundCheck, Users, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api, demoMode } from './api';
-import type { Analytics, Employee, PortalUser } from './api';
+import type { Analytics, BranchRanking, Employee, PortalUser } from './api';
 import ComparisonView from './Comparison';
 import { ChartTip, axisTick, hasNegative, seriesMotion, tooltipCursor } from './charts';
 import { ChartThemeContext, chartTokens, useChartTheme } from './lib/chart-theme';
@@ -16,7 +16,7 @@ import { AccessScreen, AccountCenter, AdminPortalTools, ManagerCenter, ShiftCent
 import { Card, Empty, PeriodBar, Segmented, Skeleton, useMediaQuery, vtName } from './ui';
 import type { PeriodProps } from './ui';
 
-type Page = 'pregled' | 'poredak' | 'djelatnici' | 'usporedba' | 'povijest' | 'jamstva' | 'smjene' | 'targeti' | 'uvoz' | 'vidljivost' | 'racun' | 'tv' | 'admin' | 'registracije' | 'poslovnice' | 'admin-uvoz';
+type Page = 'pregled' | 'poredak' | 'poredak-poslovnica' | 'djelatnici' | 'usporedba' | 'povijest' | 'jamstva' | 'smjene' | 'targeti' | 'uvoz' | 'vidljivost' | 'racun' | 'tv' | 'admin' | 'registracije' | 'poslovnice' | 'admin-uvoz';
 type NavEntry = { id: Page; label: string; icon: LucideIcon };
 type NavGroup = { id: string; label: string; icon: LucideIcon; items: NavEntry[] };
 type NavSection = { label: string; entries: Array<NavEntry | NavGroup> };
@@ -45,7 +45,7 @@ type ImportResult = { records: number; employees: number; dateFrom: string; date
 type SortKey = 'cents' | 'quantity' | 'avg';
 
 const nav: NavEntry[] = [
-  { id: 'pregled', label: 'Pregled', icon: LayoutDashboard }, { id: 'poredak', label: 'Poredak', icon: Trophy }, { id: 'djelatnici', label: 'Djelatnici', icon: Users }, { id: 'usporedba', label: 'Usporedba', icon: Activity }, { id: 'povijest', label: 'Povijest', icon: BarChart3 }, { id: 'jamstva', label: 'Jamstva', icon: Calculator }, { id: 'smjene', label: 'Smjene i zahtjevi', icon: CalendarClock }, { id: 'targeti', label: 'Targeti', icon: Target }, { id: 'uvoz', label: 'Uvoz podataka', icon: Upload }, { id: 'vidljivost', label: 'Vidljivost rezultata', icon: Eye }, { id: 'racun', label: 'Moj račun', icon: KeyRound }, { id: 'tv', label: 'TV Mode', icon: CalendarDays }, { id: 'admin', label: 'Administracija', icon: Shield }, { id: 'registracije', label: 'Registracije', icon: UserRoundCheck }, { id: 'poslovnice', label: 'Poslovnice', icon: Settings2 }, { id: 'admin-uvoz', label: 'Centralni uvoz', icon: FileSpreadsheet }
+  { id: 'pregled', label: 'Pregled', icon: LayoutDashboard }, { id: 'poredak', label: 'Poredak djelatnika', icon: Trophy }, { id: 'poredak-poslovnica', label: 'Poredak poslovnica', icon: Building2 }, { id: 'djelatnici', label: 'Djelatnici', icon: Users }, { id: 'usporedba', label: 'Usporedba', icon: Activity }, { id: 'povijest', label: 'Povijest', icon: BarChart3 }, { id: 'jamstva', label: 'Jamstva', icon: Calculator }, { id: 'smjene', label: 'Smjene i zahtjevi', icon: CalendarClock }, { id: 'targeti', label: 'Targeti', icon: Target }, { id: 'uvoz', label: 'Uvoz podataka', icon: Upload }, { id: 'vidljivost', label: 'Vidljivost rezultata', icon: Eye }, { id: 'racun', label: 'Moj račun', icon: KeyRound }, { id: 'tv', label: 'TV Mode', icon: CalendarDays }, { id: 'admin', label: 'Administracija', icon: Shield }, { id: 'registracije', label: 'Registracije', icon: UserRoundCheck }, { id: 'poslovnice', label: 'Poslovnice', icon: Settings2 }, { id: 'admin-uvoz', label: 'Centralni uvoz', icon: FileSpreadsheet }
 ];
 const navEntry = (id: Page) => nav.find(item => item.id === id)!;
 const navGroup = (id: string, label: string, icon: LucideIcon, pages: Page[]): NavGroup => ({ id, label, icon, items: pages.map(navEntry) });
@@ -302,6 +302,44 @@ function Leaderboard({ data, month, setMonth, onRefresh, loading, morphId, onOpe
         </table>
       </div>
       {!list.length && <Empty/>}
+    </div>
+  </>;
+}
+
+function BranchLeaderboard({ data, month, setMonth, onRefresh, loading }: ReportProps) {
+  const branches = data.branchLeaderboard ?? [];
+  const leader = branches[0];
+  const networkTotal = branches.reduce((sum, branch) => sum + branch.value, 0);
+  const networkQuantity = branches.reduce((sum, branch) => sum + branch.quantity, 0);
+  return <>
+    <PeriodBar month={month} setMonth={setMonth} onRefresh={onRefresh} loading={loading}/>
+    <div className="section-title">
+      <div><span className="eyebrow">REZULTATI MREŽE</span><h1>Poredak poslovnica</h1><p>Poslovnice su rangirane prema ukupnoj neto prodaji u odabranom mjesecu.</p></div>
+    </div>
+    <section className="metric-grid branch-ranking-metrics">
+      <Card label="Ukupna prodaja mreže" value={hrMoney(networkTotal)} detail={`${hrNumber(networkQuantity)} usluga u svim poslovnicama`} icon={BarChart3} tone={networkTotal < 0 ? 'negative' : 'accent'} size="hero"/>
+      <Card label="Poslovnice u poretku" value={hrNumber(branches.length)} detail="poslovnice s uvezenim podacima" icon={Building2}/>
+      <Card label="Prosjek po poslovnici" value={branches.length ? hrMoney(networkTotal / branches.length) : '—'} detail="ukupna prodaja ÷ poslovnice" icon={Activity}/>
+      <Card label="Vodeća poslovnica" value={leader?.name ?? '—'} detail={leader ? `${hrMoney(leader.value)} neto prodaja` : 'Nema podataka'} icon={Trophy} size="wide" textValue/>
+    </section>
+    <div className="panel table-panel branch-ranking-table">
+      <div className="table-wrap">
+        <table className="leaderboard-table">
+          <thead><tr><th className="col-rank">#</th><th>Poslovnica</th><th className="num col-share">Udio</th><th className="num col-optional">Usluge</th><th className="num col-optional">Prosjek</th><th className="num right">Neto prodaja</th></tr></thead>
+          <tbody>{branches.map((branch: BranchRanking) => {
+            const isOwnBranch = branch.id === data.branch?.id;
+            return <tr key={branch.id} className={isOwnBranch ? 'current-branch' : ''}>
+              <td className="col-rank"><span className={`rank ${branch.rank <= 3 ? 'medal' : ''}`}>{branch.rank}</span></td>
+              <td><div className="person"><span className="avatar branch-avatar"><Building2 size={15} aria-hidden/></span><div className="person-text"><strong>{branch.name}</strong><span className="branch-meta">{branch.code}{isOwnBranch ? <em>Vaša poslovnica</em> : null}</span></div></div></td>
+              <td className="num col-share"><div className="share-cell"><div className="mini-bar"><i className={(branch.share ?? 0) < 0 ? 'negative' : ''} style={{ width: `${Math.min(Math.abs(branch.share ?? 0) * 100, 100)}%` }}/></div><span>{shareText(branch.share)}</span></div></td>
+              <td className="num col-optional">{hrNumber(branch.quantity)}</td>
+              <td className="num col-optional">{hrMoney(branch.avg)}</td>
+              <td className="num right"><strong className={branch.value < 0 ? 'negative-text' : ''}>{hrMoney(branch.value)}</strong></td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+      {!branches.length && <Empty/>}
     </div>
   </>;
 }
@@ -750,6 +788,7 @@ export default function App() {
   const maySeePosition = !isEmployee || user?.leaderboardVisibility !== 'own';
   const resultPages: Page[] = [
     ...(maySeePosition ? ['poredak' as Page] : []),
+    'poredak-poslovnica',
     ...(fullLeaderboard ? ['djelatnici' as Page, 'usporedba' as Page, 'povijest' as Page] : [])
   ];
   const navigation: NavSection[] = sessionMode === 'legacy' ? legacyNavigation : [
@@ -771,6 +810,7 @@ export default function App() {
       {!report ? <Skeleton/> : <div className="page">
         {page === 'pregled' && <><TargetSummary data={data}/><Dashboard {...report} setPage={next => navigate(next, true)}/></>}
         {page === 'poredak' && <Leaderboard {...report} morphId={morphId} onOpen={openProfile}/>}
+        {page === 'poredak-poslovnica' && <BranchLeaderboard {...report}/>}
         {page === 'djelatnici' && <EmployeePage {...report} selected={selected} morphId={morphId} onOpen={openProfile} onBack={closeProfile}/>}
         {page === 'usporedba' && <ComparisonView {...report}/>}
         {page === 'povijest' && <History {...report}/>}
