@@ -1,6 +1,5 @@
 import { employeeKey, normalizeEmployeeName } from '../src/lib/importer';
 import { calculateTargetProgress, estimateElapsedWorkingDays } from '../src/lib/targets';
-import { calculateWarranty } from '../src/lib/warranty';
 
 type Env = { DB: any };
 type UserRole = 'employee' | 'manager' | 'superadmin';
@@ -327,52 +326,6 @@ export async function handlePortalRequest(request: Request, env: Env, helpers: H
     if (!user) return bad('Prijava je potrebna.', 401);
     const rules = await env.DB.prepare('SELECT id, code, product_group, name, rate_basis_points FROM warranty_rules WHERE active = 1 ORDER BY sort_order, name').all();
     return json({ rules: rules.results ?? [] });
-  }
-
-  if (path === '/api/warranties' && request.method === 'GET') {
-    if (!user) return bad('Prijava je potrebna.', 401);
-    const sales = await env.DB.prepare(`SELECT ws.id, ws.product_name, ws.sold_at, ws.original_price_cents, ws.discounted_price_cents, ws.warranty_cents, ws.total_cents, ws.installments,
-      wr.name AS warranty_name, wr.product_group, wr.rate_basis_points
-      FROM warranty_sales ws JOIN warranty_rules wr ON wr.id = ws.warranty_rule_id
-      WHERE ws.user_id = ? ORDER BY ws.sold_at DESC, ws.id DESC LIMIT 100`).bind(user.id).all();
-    return json({ sales: sales.results ?? [] });
-  }
-
-  if (path === '/api/warranties' && request.method === 'POST') {
-    if (!user) return bad('Prijava je potrebna.', 401);
-    const body: any = await request.json().catch(() => ({}));
-    const items = Array.isArray(body.items) ? body.items : [];
-    if (!items.length || items.length > 20) return bad('Dodajte između 1 i 20 proizvoda.', 422);
-    const statements = [];
-    let savedWarrantyCents = 0;
-    for (const item of items) {
-      const rule = await env.DB.prepare('SELECT id, rate_basis_points FROM warranty_rules WHERE id = ? AND active = 1').bind(integer(item.warrantyRuleId)).first();
-      const productName = text(item.productName).slice(0, 120);
-      const soldAt = validDate(item.soldAt) ? String(item.soldAt) : new Date().toISOString().slice(0, 10);
-      const discountType = ['none', 'percent', 'fixed'].includes(item.discountType) ? item.discountType : 'none';
-      const originalPriceCents = integer(item.originalPriceCents);
-      const discountValue = integer(item.discountValue);
-      const installments = integer(item.installments || 1);
-      if (!rule || !productName || originalPriceCents <= 0 || discountValue < 0 || installments < 1 || installments > 36) return bad('Provjerite podatke kalkulatora jamstva.', 422);
-      const calculated = calculateWarranty({ originalPriceCents, discountType, discountValue, rateBasisPoints: Number(rule.rate_basis_points), installments });
-      savedWarrantyCents += calculated.warrantyCents;
-      statements.push(env.DB.prepare(`INSERT INTO warranty_sales (branch_id, user_id, employee_id, warranty_rule_id, product_name, sold_at, original_price_cents, discount_type, discount_value, discounted_price_cents, warranty_cents, total_cents, installments)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(user.branch_id, user.id, user.employee_id, rule.id, productName, soldAt, originalPriceCents, discountType, discountValue, calculated.discountedPriceCents, calculated.warrantyCents, calculated.totalCents, installments));
-    }
-    await env.DB.batch(statements);
-    await audit(env, 'warranty.saved', { userId: user.id, branchId: user.branch_id, count: items.length, warrantyCents: savedWarrantyCents });
-    return json({ ok: true, count: items.length, warrantyCents: savedWarrantyCents }, 201);
-  }
-
-  if (path === '/api/manage/warranties' && request.method === 'GET') {
-    if (!user || !['manager', 'superadmin'].includes(user.role)) return bad('Voditeljska autorizacija je potrebna.', 403);
-    const month = validMonth(url.searchParams.get('month')) ? String(url.searchParams.get('month')) : new Date().toISOString().slice(0, 7);
-    const { from, to } = monthRange(month);
-    const branchId = managerBranch(request, user);
-    const summary = await env.DB.prepare(`SELECT u.id AS user_id, u.display_name, COUNT(ws.id) AS quantity, COALESCE(SUM(ws.warranty_cents), 0) AS warranty_cents
-      FROM users u LEFT JOIN warranty_sales ws ON ws.user_id = u.id AND ws.sold_at BETWEEN ? AND ?
-      WHERE u.branch_id = ? AND u.status = 'active' GROUP BY u.id, u.display_name ORDER BY warranty_cents DESC, u.display_name`).bind(from, to, branchId).all();
-    return json({ month, summary: summary.results ?? [], target: await targetForMonth(env, branchId, month) });
   }
 
   if (path === '/api/shifts' && request.method === 'GET') {

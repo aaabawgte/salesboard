@@ -1484,6 +1484,65 @@ html[data-vt="theme"]::view-transition-old(*), html[data-vt="theme"]::view-trans
 }
 .form-grid label.wide,
 .shift-form label.wide { grid-column: 1 / -1; }
+.installment-field { gap: var(--space-2) !important; }
+.installment-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.installment-label strong { color: var(--accent-strong); font-size: var(--fs-xs); }
+.form-grid input.installment-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.form-grid input.installment-slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.installment-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-hover);
+}
+.installment-slider::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--border-accent), 0 4px 12px var(--accent-soft);
+  -webkit-appearance: none;
+}
+.installment-slider::-moz-range-track {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-hover);
+}
+.installment-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--border-accent), 0 4px 12px var(--accent-soft);
+}
+.installment-ticks {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-3);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
 .calculation-strip {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1531,6 +1590,13 @@ html[data-vt="theme"]::view-transition-old(*), html[data-vt="theme"]::view-trans
 .warranty-summary small { color: var(--text-3); font-size: var(--fs-2xs); }
 .warranty-summary strong { font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
 .warranty-summary .summary-total strong { color: var(--accent-strong); font-size: var(--fs-xl); }
+.calculator-note {
+  margin: 0;
+  padding-top: var(--space-2);
+  color: var(--text-3);
+  font-size: var(--fs-2xs);
+  line-height: 1.55;
+}
 .portal-history { margin-top: var(--space-4); }
 .portal-history tbody tr { cursor: default; }
 .portal-empty {

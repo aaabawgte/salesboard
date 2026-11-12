@@ -733,7 +733,7 @@ export default function App() {
         {page === 'djelatnici' && <EmployeePage {...report} selected={selected} morphId={morphId} onOpen={openProfile} onBack={closeProfile}/>}
         {page === 'usporedba' && <ComparisonView {...report}/>}
         {page === 'povijest' && <History {...report}/>}
-        {page === 'jamstva' && user && <WarrantyCenter user={user} onSaved={refresh}/>}
+        {page === 'jamstva' && user && <WarrantyCenter/>}
         {page === 'smjene' && user && <ShiftCenter user={user}/>}
         {page === 'upravljanje' && user && <ManagerCenter user={user} month={month} onUpdated={refresh}/>}
         {page === 'racun' && user && <AccountCenter user={user}/>}
