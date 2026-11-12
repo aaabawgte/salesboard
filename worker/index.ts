@@ -111,18 +111,12 @@ async function handleImport(request: Request, env: Env) {
 
 async function restore(request: Request, env: Env, id: string) {
   if (!(await requireAdmin(request, env))) return bad('Administratorска autorizacija je potrebna.', 403);
-  const [changes, branchChanges] = await Promise.all([
-    env.DB.prepare('SELECT * FROM import_changes WHERE import_id = ? ORDER BY id DESC').bind(Number(id)).all(),
-    env.DB.prepare('SELECT * FROM branch_total_changes WHERE import_id = ? ORDER BY id DESC').bind(Number(id)).all()
-  ]);
-  if (!changes.results?.length && !branchChanges.results?.length) return bad('Za ovaj uvoz nema spremljenog stanja za vraćanje.', 404);
-  const salesWrites = (changes.results ?? []).map((change: any) => change.was_inserted
+  const changes = await env.DB.prepare('SELECT * FROM import_changes WHERE import_id = ? ORDER BY id DESC').bind(Number(id)).all();
+  if (!changes.results?.length) return bad('Za ovaj uvoz nema spremljenog stanja za vraćanje.', 404);
+  const writes = changes.results.map((change: any) => change.was_inserted
     ? env.DB.prepare('DELETE FROM sales_daily WHERE branch_id = ? AND employee_id = ? AND sale_date = ?').bind(change.branch_id, change.employee_id, change.sale_date)
     : env.DB.prepare('UPDATE sales_daily SET quantity = ?, value_cents = ?, updated_at = ? WHERE branch_id = ? AND employee_id = ? AND sale_date = ?').bind(change.before_quantity, change.before_value_cents, nowIso(), change.branch_id, change.employee_id, change.sale_date));
-  const branchWrites = (branchChanges.results ?? []).map((change: any) => change.was_inserted
-    ? env.DB.prepare('DELETE FROM branch_daily_totals WHERE branch_id = ? AND sale_date = ?').bind(change.branch_id, change.sale_date)
-    : env.DB.prepare('UPDATE branch_daily_totals SET quantity = ?, value_cents = ?, updated_at = ? WHERE branch_id = ? AND sale_date = ?').bind(change.before_quantity, change.before_value_cents, nowIso(), change.branch_id, change.sale_date));
-  await env.DB.batch([...salesWrites, ...branchWrites]);
+  await env.DB.batch(writes);
   await env.DB.prepare("UPDATE import_batches SET status = 'restored', restored_at = ? WHERE id = ?").bind(nowIso(), Number(id)).run();
   await env.DB.prepare('INSERT INTO audit_logs (action, details_json) VALUES (?, ?)').bind('import.restore', JSON.stringify({ importId: id })).run();
   return json({ ok: true });

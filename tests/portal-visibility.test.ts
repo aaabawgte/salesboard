@@ -27,17 +27,12 @@ describe('portal result visibility', () => {
       { date: '2026-11-01', quantity: 5, cents: 5_000, employee_id: 2, employee: 'Drugi Djelatnik' },
       { date: '2026-11-02', quantity: 2, cents: 2_000, employee_id: 3, employee: 'Treći Djelatnik' }
     ];
-    const branchSales = [
-      { id: 1, code: 'CCOW', name: 'Big Bang Zagreb CCO West', quantity: 17, cents: 17_000 },
-      { id: 2, code: 'CCOE', name: 'Big Bang Zagreb CCO East', quantity: 20, cents: 25_000 },
-      { id: 3, code: 'VARAZDIN', name: 'Big Bang Varaždin', quantity: 0, cents: 0 }
-    ];
     const DB = {
       prepare(sql: string) {
         return {
           bind() {
             return {
-              all: async () => ({ results: sql.includes('FROM sales_daily s JOIN employees') ? sales : sql.includes('FROM branches b') ? branchSales : [] }),
+              all: async () => ({ results: sql.includes('FROM sales_daily s JOIN employees') ? sales : [] }),
               first: async () => {
                 if (sql.includes('FROM user_sessions')) return user;
                 if (sql.includes('SUM(warranty_cents)')) return { cents: 0 };
@@ -65,9 +60,5 @@ describe('portal result visibility', () => {
     expect(body.leaderboard).toHaveLength(1);
     expect(body.leaderboard[0]).toMatchObject({ id: 2, rank: 2, name: 'Drugi Djelatnik' });
     expect(body.viewer.ownRank).toBe(2);
-    expect(body.branchLeaderboard).toEqual([
-      { id: 2, code: 'CCOE', name: 'Big Bang Zagreb CCO East', quantity: 20, cents: 25_000, rank: 1, value: 250, avg: 12.5, share: 25 / 42 },
-      { id: 1, code: 'CCOW', name: 'Big Bang Zagreb CCO West', quantity: 17, cents: 17_000, rank: 2, value: 170, avg: 10, share: 17 / 42 }
-    ]);
   });
 });

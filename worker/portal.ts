@@ -186,33 +186,6 @@ async function portalAnalytics(request: Request, env: Env, user: PortalUser) {
     .sort((a, b) => b.cents - a.cents || b.quantity - a.quantity || a.name.localeCompare(b.name, 'hr'))
     .map((employee, index) => ({ ...employee, rank: index + 1, value: employee.cents / 100, avg: employee.quantity ? Math.round(employee.cents / employee.quantity) / 100 : null, share: branchTotalCents ? employee.cents / branchTotalCents : null }));
 
-  const branchResult = await env.DB.prepare(`SELECT b.id, b.code, b.name,
-      COALESCE(SUM(s.quantity), 0) AS quantity, COALESCE(SUM(s.value_cents), 0) AS cents
-    FROM branches b
-    LEFT JOIN (
-      SELECT branch_id, sale_date, quantity, value_cents FROM branch_daily_totals
-      UNION ALL
-      SELECT sd.branch_id, sd.sale_date, sd.quantity, sd.value_cents
-      FROM sales_daily sd
-      WHERE NOT EXISTS (
-        SELECT 1 FROM branch_daily_totals total
-        WHERE total.branch_id = sd.branch_id AND total.sale_date = sd.sale_date
-      )
-    ) s ON s.branch_id = b.id AND s.sale_date BETWEEN ? AND ?
-    GROUP BY b.id, b.code, b.name`).bind(from, to).all();
-  const rankedBranches = (branchResult.results ?? [])
-    .map((branch: any) => ({ id: Number(branch.id), code: String(branch.code), name: String(branch.name), quantity: Number(branch.quantity), cents: Number(branch.cents) }))
-    .filter((branch: any) => branch.cents !== 0 || branch.quantity !== 0)
-    .sort((a: any, b: any) => b.cents - a.cents || b.quantity - a.quantity || a.name.localeCompare(b.name, 'hr'));
-  const networkTotalCents = rankedBranches.reduce((sum: number, branch: any) => sum + branch.cents, 0);
-  const branchLeaderboard = rankedBranches.map((branch: any, index: number) => ({
-    ...branch,
-    rank: index + 1,
-    value: branch.cents / 100,
-    avg: branch.quantity ? Math.round(branch.cents / branch.quantity) / 100 : null,
-    share: networkTotalCents ? branch.cents / networkTotalCents : null
-  }));
-
   const employeeView = user.role === 'employee';
   const maySeeFull = !employeeView || user.leaderboard_visibility === 'full';
   const visibleIds = maySeeFull ? null : new Set(user.employee_id == null ? [] : [user.employee_id]);
@@ -242,7 +215,6 @@ async function portalAnalytics(request: Request, env: Env, user: PortalUser) {
     quantity: rows.reduce((sum: number, row: any) => sum + row.quantity, 0),
     leaderboard,
     employees: leaderboard,
-    branchLeaderboard,
     daily,
     rows: visibleRows,
     latestImport: latestImport ?? null,

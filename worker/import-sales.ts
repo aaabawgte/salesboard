@@ -1,4 +1,4 @@
-import { aggregateBranchTotals, aggregateRows, normalizeEmployeeName, parseWorkbook } from '../src/lib/importer';
+import { aggregateRows, normalizeEmployeeName, parseWorkbook } from '../src/lib/importer';
 
 type Env = { DB: any };
 type ImportScope = {
@@ -30,7 +30,7 @@ export async function importSalesWorkbook(request: Request, env: Env, scope: Imp
 
   const buffer = await file.arrayBuffer();
   const scopeKey = scope.branchCode ?? 'ALL';
-  const fingerprint = `${await digest(buffer)}:${scopeKey}:company-totals-v1`;
+  const fingerprint = `${await digest(buffer)}:${scopeKey}`;
   const duplicate = await env.DB.prepare("SELECT id, imported_at FROM import_batches WHERE fingerprint = ? AND status = 'success'").bind(fingerprint).first();
   if (duplicate) return json({ duplicate: true, message: 'Ova je datoteka već uvezena za odabranu poslovnicu.', importId: duplicate.id, importedAt: duplicate.imported_at }, 409);
 
@@ -49,9 +49,9 @@ export async function importSalesWorkbook(request: Request, env: Env, scope: Imp
   }
 
   const aggregate = aggregateRows(selectedRows);
-  const companyTotals = aggregateBranchTotals(parsed.rows);
-  const dateFrom = parsed.dateFrom;
-  const dateTo = parsed.dateTo;
+  const dates = selectedRows.map(row => row.date).sort();
+  const dateFrom = dates[0];
+  const dateTo = dates[dates.length - 1];
   const employeeNames = new Map(selectedRows.map(row => [row.employeeKey, row.employee]));
 
   const branchResult = await env.DB.prepare('SELECT id, code, name FROM branches').all();
@@ -61,10 +61,8 @@ export async function importSalesWorkbook(request: Request, env: Env, scope: Imp
     name: String(branch.name)
   }]));
   const affectedCodes = [...new Set(aggregate.map(row => row.branchCode))];
-  const parsedCompanyCodes = [...new Set(companyTotals.map(row => row.branchCode))];
-  const missingBranch = parsedCompanyCodes.find(code => !branches.has(code));
+  const missingBranch = affectedCodes.find(code => !branches.has(code));
   if (missingBranch) return bad(`Poslovnica ${missingBranch} nije inicijalizirana u bazi.`, 500);
-  const companyAffectedCodes = [...branches.keys()];
 
   try {
     const existingEmployees = await env.DB.prepare('SELECT id, normalized_key FROM employees').all();
@@ -89,18 +87,6 @@ export async function importSalesWorkbook(request: Request, env: Env, scope: Imp
         .bind(branch.id, dateFrom, dateTo).all();
       for (const row of existing.results ?? []) beforeByKey.set(`${branch.id}|${row.employee_id}|${row.sale_date}`, row);
     }
-    const beforeBranchTotals = new Map<string, any>();
-    for (const code of companyAffectedCodes) {
-      const branch = branches.get(code)!;
-      const existing = await env.DB.prepare('SELECT sale_date, quantity, value_cents FROM branch_daily_totals WHERE branch_id = ? AND sale_date BETWEEN ? AND ?')
-        .bind(branch.id, dateFrom, dateTo).all();
-      for (const row of existing.results ?? []) beforeBranchTotals.set(`${branch.id}|${row.sale_date}`, {
-        ...row,
-        branchId: branch.id,
-        branchCode: branch.code,
-        branchName: branch.name
-      });
-    }
 
     await env.DB.prepare(`INSERT INTO import_batches (file_name, fingerprint, date_from, date_to, rows_processed, employees_count, status, warnings_json)
       VALUES (?, ?, ?, ?, ?, ?, 'failed', ?)
@@ -123,28 +109,6 @@ export async function importSalesWorkbook(request: Request, env: Env, scope: Imp
         before: beforeByKey.get(`${branch.id}|${employeeId}|${row.date}`)
       };
     });
-    const companyChanges = companyTotals.map(row => {
-      const branch = branches.get(row.branchCode)!;
-      return {
-        ...row,
-        branchId: branch.id,
-        branchName: branch.name,
-        before: beforeBranchTotals.get(`${branch.id}|${row.date}`)
-      };
-    });
-    const incomingCompanyKeys = new Set(companyChanges.map(row => `${row.branchId}|${row.date}`));
-    for (const [key, before] of beforeBranchTotals) {
-      if (incomingCompanyKeys.has(key)) continue;
-      companyChanges.push({
-        branchCode: before.branchCode,
-        date: String(before.sale_date),
-        quantity: 0,
-        cents: 0,
-        branchId: before.branchId,
-        branchName: before.branchName,
-        before
-      });
-    }
 
     const statements: any[] = [];
     const chunkSize = 100;
@@ -160,18 +124,6 @@ export async function importSalesWorkbook(request: Request, env: Env, scope: Imp
         SELECT json_extract(value,'$[0]'), json_extract(value,'$[1]'), json_extract(value,'$[2]'), json_extract(value,'$[3]'), json_extract(value,'$[4]'), json_extract(value,'$[5]'), json_extract(value,'$[6]'), json_extract(value,'$[7]'), json_extract(value,'$[8]') FROM json_each(?)`)
         .bind(JSON.stringify(revisions)));
     }
-    for (let start = 0; start < companyChanges.length; start += chunkSize) {
-      const chunk = companyChanges.slice(start, start + chunkSize);
-      const totals = chunk.map(row => [row.branchId, row.date, row.quantity, row.cents, importId, nowIso()]);
-      const revisions = chunk.map(row => [importId, row.branchId, row.date, row.before?.quantity ?? null, row.before?.value_cents ?? null, row.quantity, row.cents, row.before ? 0 : 1]);
-      statements.push(env.DB.prepare(`INSERT INTO branch_daily_totals (branch_id, sale_date, quantity, value_cents, source_import_id, updated_at)
-        SELECT json_extract(value,'$[0]'), json_extract(value,'$[1]'), json_extract(value,'$[2]'), json_extract(value,'$[3]'), json_extract(value,'$[4]'), json_extract(value,'$[5]') FROM json_each(?) WHERE 1=1
-        ON CONFLICT(branch_id, sale_date) DO UPDATE SET quantity = excluded.quantity, value_cents = excluded.value_cents, source_import_id = excluded.source_import_id, updated_at = excluded.updated_at`)
-        .bind(JSON.stringify(totals)));
-      statements.push(env.DB.prepare(`INSERT INTO branch_total_changes (import_id, branch_id, sale_date, before_quantity, before_value_cents, after_quantity, after_value_cents, was_inserted)
-        SELECT json_extract(value,'$[0]'), json_extract(value,'$[1]'), json_extract(value,'$[2]'), json_extract(value,'$[3]'), json_extract(value,'$[4]'), json_extract(value,'$[5]'), json_extract(value,'$[6]'), json_extract(value,'$[7]') FROM json_each(?)`)
-        .bind(JSON.stringify(revisions)));
-    }
 
     const branchSummary = affectedCodes.map(code => {
       const branch = branches.get(code)!;
@@ -185,25 +137,13 @@ export async function importSalesWorkbook(request: Request, env: Env, scope: Imp
         employees: new Set(rows.map(row => row.employeeKey)).size
       };
     });
-    const companyBranchSummary = companyAffectedCodes.map(code => {
-      const branch = branches.get(code)!;
-      const records = companyChanges.filter(row => row.branchCode === code);
-      return {
-        code,
-        name: branch.name,
-        records: records.length,
-        quantity: records.reduce((sum, row) => sum + row.quantity, 0),
-        cents: records.reduce((sum, row) => sum + row.cents, 0)
-      };
-    });
     statements.push(env.DB.prepare("UPDATE import_batches SET status = 'success', updated_records = ?, error_message = NULL WHERE id = ?").bind(aggregate.length, importId));
     statements.push(env.DB.prepare('INSERT INTO audit_logs (action, details_json) VALUES (?, ?)').bind('import.success', JSON.stringify({
       importId,
       fileName: file.name,
       scope: scopeKey,
       actor: scope.actor,
-      branches: branchSummary,
-      companyBranches: companyBranchSummary
+      branches: branchSummary
     })));
     await env.DB.batch(statements);
 
@@ -217,7 +157,6 @@ export async function importSalesWorkbook(request: Request, env: Env, scope: Imp
       records: aggregate.length,
       employees: employeeNames.size,
       branches: branchSummary,
-      companyBranches: companyBranchSummary,
       warnings: parsed.warnings
     });
   } catch (error) {

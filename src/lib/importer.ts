@@ -149,15 +149,3 @@ export function aggregateRows(rows: ParsedSale[]) {
   }
   return [...map.values()];
 }
-
-export function aggregateBranchTotals(rows: ParsedSale[]) {
-  const map = new Map<string, { branchCode: string; date: string; quantity: number; cents: number }>();
-  for (const row of rows) {
-    const id = `${row.branchCode}|${row.date}`;
-    const current = map.get(id) ?? { branchCode: row.branchCode, date: row.date, quantity: 0, cents: 0 };
-    current.quantity += row.quantity;
-    current.cents += row.cents;
-    map.set(id, current);
-  }
-  return [...map.values()];
-}
