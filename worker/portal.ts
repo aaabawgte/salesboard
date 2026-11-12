@@ -2,7 +2,7 @@ import { employeeKey, normalizeEmployeeName } from '../src/lib/importer';
 import { calculateTargetProgress, estimateElapsedWorkingDays } from '../src/lib/targets';
 import { calculateWarranty } from '../src/lib/warranty';
 
-type Env = { DB: any };
+type Env = { DB: any; USER_ROLE_SETUP_TOKEN?: string };
 type UserRole = 'employee' | 'manager' | 'superadmin';
 type PortalUser = {
   id: number;
@@ -69,6 +69,20 @@ export async function hashPassword(password: string) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
   const derived = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256);
   return `pbkdf2$sha256$${iterations}$${base64(salt)}$${base64(derived)}`;
+}
+
+async function setupTokenMatches(provided: string, expected: string | undefined) {
+  if (!provided || !expected) return false;
+  const encoder = new TextEncoder();
+  const [providedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(provided)),
+    crypto.subtle.digest('SHA-256', encoder.encode(expected))
+  ]);
+  const left = new Uint8Array(providedHash);
+  const right = new Uint8Array(expectedHash);
+  let mismatch = left.length ^ right.length;
+  for (let index = 0; index < Math.min(left.length, right.length); index += 1) mismatch |= left[index] ^ right[index];
+  return mismatch === 0;
 }
 
 function employeeIdentityKey(value: unknown) {
@@ -244,6 +258,22 @@ export async function handlePortalRequest(request: Request, env: Env, helpers: H
   const { json, bad } = helpers;
   const url = new URL(request.url);
   const path = url.pathname;
+
+  if (path === '/api/internal/user-role' && request.method === 'PATCH') {
+    if (!env.USER_ROLE_SETUP_TOKEN) return null;
+    const authorization = request.headers.get('authorization') ?? '';
+    const providedToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!(await setupTokenMatches(providedToken, env.USER_ROLE_SETUP_TOKEN))) return bad('Autorizacija nije valjana.', 403);
+    const body: any = await request.json().catch(() => ({}));
+    const username = text(body.username).toLocaleLowerCase('hr');
+    const role = body.role === 'manager' ? 'manager' : body.role === 'employee' ? 'employee' : '';
+    if (!username || !role) return bad('Korisničko ime i uloga su obavezni.', 422);
+    const existing = await env.DB.prepare('SELECT id, role FROM users WHERE username = ?').bind(username).first();
+    if (!existing) return bad('Korisnik nije pronađen.', 404);
+    await env.DB.prepare('UPDATE users SET role = ?, updated_at = ? WHERE id = ?').bind(role, nowIso(), existing.id).run();
+    await audit(env, 'user.role-changed', { userId: Number(existing.id), from: existing.role, to: role });
+    return json({ ok: true, username, role });
+  }
 
   if (path === '/api/branches' && request.method === 'GET') {
     const branches = await env.DB.prepare('SELECT id, code, name FROM branches ORDER BY name').all();
