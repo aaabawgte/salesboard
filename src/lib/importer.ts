@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 export type ParsedSale = {
   date: string;
   branch: string;
+  branchCode: string;
   employee: string;
   employeeKey: string;
   quantity: number;
@@ -70,8 +71,26 @@ function findField(headers: string[], wanted: string): string | undefined {
 }
 
 export function isCCOWBranch(value: string): boolean {
-  const normalized = key(value);
-  return normalized.includes('CCOW') || normalized.includes('CCO WEST') || normalized.includes('CITY CENTER ONE WEST') || normalized.includes('CITY CENTER ONE ZAPAD') || normalized.includes('CITY CENTER ONE ZAGREB ZAPAD');
+  return branchCode(value) === 'CCOW';
+}
+
+const branchAliases: Record<string, string[]> = {
+  ARENA_PARK: ['Big Bang Zagreb Arena Park'],
+  SES_ARENA: ['Arena Samsung Experience Store', 'Samsung Experience Store Arena'],
+  CCOE: ['Big Bang Zagreb CCO East', 'Big Bang CCO East', 'CCOE', 'City Center One East'],
+  CCOW: ['Big Bang Zagreb CCO West', 'Big Bang CCOW', 'CCOW', 'City Center One West', 'City Center One Zapad', 'City Center One Zagreb Zapad'],
+  SVETA_NEDELJA: ['Big Bang Sveta Nedelja'],
+  OSIJEK_GACKA: ['Big Bang Osijek Gacka', 'Big Bang Osijek, Gacka'],
+  RIJEKA_MARTI: ['Big Bang Rijeka Marti'],
+  SPLIT_CCO: ['Big Bang Split CCO'],
+  ZADAR_CITY_PARK: ['Big Bang Zadar City Park'],
+  VARAZDIN: ['Big Bang Varaždin Green Park', 'Big Bang Varaždin']
+};
+
+const branchCodeByAlias = new Map(Object.entries(branchAliases).flatMap(([code, aliases]) => aliases.map(alias => [key(alias), code])));
+
+export function branchCode(value: string): string | null {
+  return branchCodeByAlias.get(key(value)) ?? null;
 }
 
 export function parseWorkbook(input: ArrayBuffer | Uint8Array): ImportParseResult {
@@ -82,6 +101,7 @@ export function parseWorkbook(input: ArrayBuffer | Uint8Array): ImportParseResul
   const rows: ParsedSale[] = [];
   const warnings: string[] = [];
   const branches = new Set<string>();
+  const ignoredBranches = new Map<string, number>();
   const employeeNames = new Map<string, string>();
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
@@ -97,9 +117,10 @@ export function parseWorkbook(input: ArrayBuffer | Uint8Array): ImportParseResul
     raw.forEach((record, index) => {
       const rowNumber = index + 2;
       const branch = strip(record[fields.poslovnica!]);
-      if (!branch) { warnings.push(`Redak ${rowNumber} na listu "${sheetName}" nema poslovnicu.`); return; }
+      if (!branch) { ignoredBranches.set('(bez poslovnice)', (ignoredBranches.get('(bez poslovnice)') ?? 0) + 1); return; }
       branches.add(branch);
-      if (!isCCOWBranch(branch)) return;
+      const mappedBranchCode = branchCode(branch);
+      if (!mappedBranchCode) { ignoredBranches.set(branch, (ignoredBranches.get(branch) ?? 0) + 1); return; }
       const sourceEmployee = normalizeEmployeeName(strip(record[fields.komercijalist!]));
       if (!sourceEmployee) { warnings.push(`Redak ${rowNumber} na listu "${sheetName}" nema djelatnika.`); return; }
       try {
@@ -109,21 +130,21 @@ export function parseWorkbook(input: ArrayBuffer | Uint8Array): ImportParseResul
         if (!Number.isInteger(Math.round(value * 100))) throw new Error('novčana vrijednost nije precizna');
         const normalizedKey = employeeKey(sourceEmployee);
         employeeNames.set(normalizedKey, employeeNames.get(normalizedKey) ?? sourceEmployee);
-        rows.push({ date, branch, employee: employeeNames.get(normalizedKey)!, employeeKey: normalizedKey, quantity, cents: Math.round(value * 100), sourceRow: rowNumber });
+        rows.push({ date, branch, branchCode: mappedBranchCode, employee: employeeNames.get(normalizedKey)!, employeeKey: normalizedKey, quantity, cents: Math.round(value * 100), sourceRow: rowNumber });
       } catch (error) { warnings.push(`Redak ${rowNumber} na listu "${sheetName}" preskočen: ${(error as Error).message}`); }
     });
   }
-  if (!rows.length && branches.size && [...branches].some(isCCOWBranch)) throw new Error(`Nema valjanih CCOW redaka. ${warnings.join(' ')}`);
-  if (!rows.length) throw new Error('Datoteka ne sadrži valjane retke za poslovnicu CCOW.');
+  for (const [branch, count] of ignoredBranches) warnings.push(`Poslovnica "${branch}" preskočena: ${count} redaka.`);
+  if (!rows.length) throw new Error(`Datoteka ne sadrži valjane retke za podržane poslovnice. ${warnings.join(' ')}`.trim());
   const dates = rows.map(row => row.date).sort();
   return { rows, warnings, dateFrom: dates[0], dateTo: dates[dates.length - 1], employees: [...employeeNames.values()].sort((a, b) => a.localeCompare(b, 'hr')), branches: [...branches], sheets: workbook.SheetNames };
 }
 
 export function aggregateRows(rows: ParsedSale[]) {
-  const map = new Map<string, { date: string; employee: string; employeeKey: string; quantity: number; cents: number }>();
+  const map = new Map<string, { branchCode: string; date: string; employee: string; employeeKey: string; quantity: number; cents: number }>();
   for (const row of rows) {
-    const id = `${row.date}|${row.employeeKey}`;
-    const current = map.get(id) ?? { date: row.date, employee: row.employee, employeeKey: row.employeeKey, quantity: 0, cents: 0 };
+    const id = `${row.branchCode}|${row.date}|${row.employeeKey}`;
+    const current = map.get(id) ?? { branchCode: row.branchCode, date: row.date, employee: row.employee, employeeKey: row.employeeKey, quantity: 0, cents: 0 };
     current.quantity += row.quantity; current.cents += row.cents; map.set(id, current);
   }
   return [...map.values()];

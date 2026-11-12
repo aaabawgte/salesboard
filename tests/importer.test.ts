@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
-import { aggregateRows, employeeKey, isCCOWBranch, parseDecimal, parseWorkbook, toIsoDate } from '../src/lib/importer';
+import { aggregateRows, branchCode, employeeKey, isCCOWBranch, parseDecimal, parseWorkbook, toIsoDate } from '../src/lib/importer';
 
 function workbook(rows: Record<string, unknown>[]) {
   const wb = XLSX.utils.book_new();
@@ -9,7 +9,7 @@ function workbook(rows: Record<string, unknown>[]) {
 }
 
 describe('SalesBoard Excel importer', () => {
-  it('parses Croatian dates, decimals, negative values and filters CCOW', () => {
+  it('parses Croatian dates, decimals, negative values and ignores unsupported branches', () => {
     const result = parseWorkbook(workbook([
       { Datum: '09.02.2024', POSLOVNICA: 'CCOW', KOMERCIJALIST: 'Željko Primjer', KOLIČINA: '1', VREDNOST: '21,75' },
       { Datum: '09.02.2024', POSLOVNICA: 'CCOW', KOMERCIJALIST: 'Željko Primjer', KOLIČINA: '-1', VREDNOST: '-4,95' },
@@ -40,5 +40,31 @@ describe('SalesBoard Excel importer', () => {
     expect(parseDecimal('1.234,56')).toBe(1234.56);
     expect(parseDecimal('-4,95')).toBe(-4.95);
     expect(toIsoDate('2024-02-09')).toBe('2024-02-09');
+  });
+
+  it('maps every confirmed Excel branch to its SalesBoard code', () => {
+    expect(branchCode('Big Bang Zagreb Arena Park')).toBe('ARENA_PARK');
+    expect(branchCode('Arena Samsung Experience Store')).toBe('SES_ARENA');
+    expect(branchCode('Big Bang Zagreb CCO East')).toBe('CCOE');
+    expect(branchCode('Big Bang Zagreb CCO West')).toBe('CCOW');
+    expect(branchCode('Big Bang Sveta Nedelja')).toBe('SVETA_NEDELJA');
+    expect(branchCode('Big Bang Osijek Gacka')).toBe('OSIJEK_GACKA');
+    expect(branchCode('Big Bang Rijeka Marti')).toBe('RIJEKA_MARTI');
+    expect(branchCode('Big Bang Split CCO')).toBe('SPLIT_CCO');
+    expect(branchCode('Big Bang Zadar City Park')).toBe('ZADAR_CITY_PARK');
+    expect(branchCode('Big Bang Varaždin Green Park')).toBe('VARAZDIN');
+    expect(branchCode('Big Bang Webshop')).toBeNull();
+    expect(branchCode('SD B2B')).toBeNull();
+    expect(branchCode('Veleprodaja')).toBeNull();
+  });
+
+  it('keeps the same employee and date separate between branches', () => {
+    const rows = parseWorkbook(workbook([
+      { Datum: '09.02.2024', POSLOVNICA: 'Big Bang Zagreb CCO West', KOMERCIJALIST: 'Ana Primjer', KOLIČINA: 1, VREDNOST: 10 },
+      { Datum: '09.02.2024', POSLOVNICA: 'Big Bang Zagreb CCO East', KOMERCIJALIST: 'Ana Primjer', KOLIČINA: 2, VREDNOST: 20 }
+    ])).rows;
+    const result = aggregateRows(rows);
+    expect(result).toHaveLength(2);
+    expect(result.map(row => row.branchCode).sort()).toEqual(['CCOE', 'CCOW']);
   });
 });

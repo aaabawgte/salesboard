@@ -1,5 +1,6 @@
 import { employeeKey, normalizeEmployeeName } from '../src/lib/importer';
 import { calculateTargetProgress, estimateElapsedWorkingDays } from '../src/lib/targets';
+import { importSalesWorkbook } from './import-sales';
 
 type Env = { DB: any };
 type UserRole = 'employee' | 'manager' | 'superadmin';
@@ -199,7 +200,9 @@ async function portalAnalytics(request: Request, env: Env, user: PortalUser) {
   }
   const daily = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)).map(day => ({ ...day, value: day.cents / 100 }));
   const totalCents = visibleRows.reduce((sum: number, row: any) => sum + row.cents, 0);
-  const latestImport = await env.DB.prepare("SELECT imported_at, file_name FROM import_batches WHERE status = 'success' ORDER BY imported_at DESC LIMIT 1").first();
+  const latestImport = await env.DB.prepare(`SELECT ib.imported_at, ib.file_name FROM import_batches ib
+    WHERE ib.status = 'success' AND EXISTS (SELECT 1 FROM sales_daily s WHERE s.source_import_id = ib.id AND s.branch_id = ?)
+    ORDER BY ib.imported_at DESC LIMIT 1`).bind(user.branch_id).first();
   const month = from.slice(0, 7);
   const ownRank = user.employee_id == null ? null : fullLeaderboard.find(employee => employee.id === user.employee_id)?.rank ?? null;
   return {
@@ -421,8 +424,23 @@ export async function handlePortalRequest(request: Request, env: Env, helpers: H
     return json({ ok: true });
   }
 
-  const isAdminRoute = path.startsWith('/api/admin/registrations') || path === '/api/admin/branches' || path === '/api/admin/target' || path === '/api/admin/visibility';
+  if (path === '/api/manage/import' && request.method === 'POST') {
+    if (!user || !['manager', 'superadmin'].includes(user.role)) return bad('Voditeljska autorizacija je potrebna.', 403);
+    const branchId = managerBranch(request, user);
+    const branch = await env.DB.prepare('SELECT code FROM branches WHERE id = ?').bind(branchId).first();
+    if (!branch) return bad('Poslovnica nije pronađena.', 404);
+    return importSalesWorkbook(request, env, {
+      branchCode: String(branch.code),
+      actor: { kind: user.role === 'superadmin' ? 'superadmin' : 'manager', id: user.id }
+    });
+  }
+
+  const isAdminRoute = path.startsWith('/api/admin/registrations') || path === '/api/admin/branches' || path === '/api/admin/target' || path === '/api/admin/visibility' || path === '/api/admin/import';
   if (isAdminRoute && user?.role !== 'superadmin' && !(await helpers.requireAdmin(request, env))) return bad('Administratorska autorizacija je potrebna.', 403);
+
+  if (path === '/api/admin/import' && request.method === 'POST') {
+    return importSalesWorkbook(request, env, { actor: { kind: user?.role === 'superadmin' ? 'superadmin' : 'legacy-admin', id: user?.id } });
+  }
 
   if (path === '/api/admin/branches' && request.method === 'GET') {
     const branches = await env.DB.prepare(`SELECT b.id, b.code, b.name, COALESCE(bs.leaderboard_visibility, 'own') AS leaderboard_visibility,

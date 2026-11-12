@@ -1,7 +1,7 @@
-import { aggregateRows, employeeKey, normalizeEmployeeName, parseWorkbook } from '../src/lib/importer';
-import * as XLSX from 'xlsx';
+import { employeeKey, normalizeEmployeeName } from '../src/lib/importer';
 import { schemaStatements } from './schema';
 import { handlePortalRequest, USER_SESSION_HEADER } from './portal';
+import { importSalesWorkbook } from './import-sales';
 
 type Env = { DB: any; DASHBOARD_PASSWORD_HASH: string; ADMIN_PASSWORD_HASH: string; SESSION_SECRET: string };
 const COOKIE_DASHBOARD = 'sb_session';
@@ -84,7 +84,8 @@ function period(request: Request) {
 async function analytics(request: Request, env: Env) {
   const { from, to } = period(request);
   const result = await env.DB.prepare(`SELECT s.sale_date AS date, s.quantity, s.value_cents AS cents, e.id AS employee_id, e.display_name AS employee
-    FROM sales_daily s JOIN employees e ON e.id = s.employee_id WHERE s.sale_date BETWEEN ? AND ? ORDER BY s.sale_date, e.display_name`).bind(from, to).all();
+    FROM sales_daily s JOIN employees e ON e.id = s.employee_id JOIN branches b ON b.id = s.branch_id
+    WHERE b.code = 'CCOW' AND s.sale_date BETWEEN ? AND ? ORDER BY s.sale_date, e.display_name`).bind(from, to).all();
   const rows = (result.results ?? []).map((row: any) => ({ ...row, value: money(Number(row.cents)), cents: Number(row.cents), quantity: Number(row.quantity) }));
   const byEmployee = new Map<number, any>(); const byDay = new Map<string, any>();
   for (const row of rows) {
@@ -98,69 +99,14 @@ async function analytics(request: Request, env: Env) {
   // not ranked. Keep negative results visible because they are real corrections.
   const leaderboard = [...byEmployee.values()].filter(employee => employee.cents !== 0 || employee.quantity !== 0).sort((a, b) => b.cents - a.cents || b.quantity - a.quantity || a.name.localeCompare(b.name, 'hr')).map((employee, index) => ({ ...employee, rank: index + 1, value: money(employee.cents), avg: employee.quantity ? money(Math.round(employee.cents / employee.quantity)) : null, share: totalCents ? employee.cents / totalCents : null }));
   const daily = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)).map(day => ({ ...day, value: money(day.cents) }));
-  return { from, to, totalCents, total: money(totalCents), quantity: rows.reduce((sum: number, row: any) => sum + row.quantity, 0), leaderboard, daily, rows, employees: leaderboard, latestImport: (await env.DB.prepare("SELECT imported_at, file_name FROM import_batches WHERE status = 'success' ORDER BY imported_at DESC LIMIT 1").first()) ?? null };
+  return { from, to, totalCents, total: money(totalCents), quantity: rows.reduce((sum: number, row: any) => sum + row.quantity, 0), leaderboard, daily, rows, employees: leaderboard, latestImport: (await env.DB.prepare(`SELECT ib.imported_at, ib.file_name FROM import_batches ib
+    WHERE ib.status = 'success' AND EXISTS (SELECT 1 FROM sales_daily s JOIN branches b ON b.id = s.branch_id WHERE s.source_import_id = ib.id AND b.code = 'CCOW')
+    ORDER BY ib.imported_at DESC LIMIT 1`).first()) ?? null };
 }
 
 async function handleImport(request: Request, env: Env) {
   if (!(await requireAdmin(request, env))) return bad('Administratorska autorizacija je potrebna.', 403);
-  const contentLength = Number(request.headers.get('content-length') ?? 0); if (contentLength > 10 * 1024 * 1024) return bad('Datoteka je prevelika. Maksimalna veličina je 10 MB.', 413);
-  const form = await request.formData(); const file = form.get('file');
-  if (!(file instanceof File)) return bad('Odaberite XLSX datoteku.', 400);
-  if (!file.name.toLowerCase().endsWith('.xlsx')) return bad('Podržane su samo .xlsx datoteke.', 415);
-  const buffer = await file.arrayBuffer(); const fingerprint = await digest(buffer);
-  const duplicate = await env.DB.prepare("SELECT id, imported_at FROM import_batches WHERE fingerprint = ? AND status = 'success'").bind(fingerprint).first();
-  if (duplicate) return json({ duplicate: true, message: 'Ova je datoteka već uvezena.', importId: duplicate.id, importedAt: duplicate.imported_at }, 409);
-  let parsed; try { parsed = parseWorkbook(buffer); } catch (error) { return bad((error as Error).message, 422); }
-  const aggregate = aggregateRows(parsed.rows); const branch = await env.DB.prepare("SELECT id FROM branches WHERE code = 'CCOW'").first();
-  if (!branch) return bad('Baza nije inicijalizirana. Primijenite D1 migraciju prije uvoza.', 500);
-  try {
-    const existingEmployees = await env.DB.prepare('SELECT id, normalized_key FROM employees').all();
-    const aliases = await env.DB.prepare('SELECT employee_id, alias_key FROM employee_aliases').all();
-    const employeeIds = new Map<string, number>();
-    for (const employee of existingEmployees.results ?? []) employeeIds.set(employee.normalized_key, Number(employee.id));
-    for (const alias of aliases.results ?? []) employeeIds.set(alias.alias_key, Number(alias.employee_id));
-    const missing = [...new Map(aggregate.filter(row => !employeeIds.has(row.employeeKey)).map(row => [row.employeeKey, row.employee])).entries()];
-    if (missing.length) {
-      const marks = missing.map(() => '(?, ?)').join(', ');
-      await env.DB.prepare(`INSERT INTO employees (normalized_key, display_name) VALUES ${marks} ON CONFLICT(normalized_key) DO NOTHING`).bind(...missing.flatMap(([key, name]) => [key, normalizeEmployeeName(name)])).run();
-      const refreshed = await env.DB.prepare('SELECT id, normalized_key FROM employees').all();
-      for (const employee of refreshed.results ?? []) employeeIds.set(employee.normalized_key, Number(employee.id));
-    }
-    const existing = await env.DB.prepare('SELECT employee_id, sale_date, quantity, value_cents FROM sales_daily WHERE branch_id = ? AND sale_date BETWEEN ? AND ?').bind(branch.id, parsed.dateFrom, parsed.dateTo).all();
-    const beforeByKey = new Map((existing.results ?? []).map((row: any) => [`${row.employee_id}|${row.sale_date}`, row]));
-    await env.DB.prepare(`INSERT INTO import_batches (file_name, fingerprint, date_from, date_to, rows_processed, employees_count, status, warnings_json) VALUES (?, ?, ?, ?, ?, ?, 'failed', ?)
-      ON CONFLICT(fingerprint) DO UPDATE SET file_name = excluded.file_name, date_from = excluded.date_from, date_to = excluded.date_to, rows_processed = excluded.rows_processed, employees_count = excluded.employees_count, status = 'failed', warnings_json = excluded.warnings_json, error_message = NULL`)
-      .bind(file.name, fingerprint, parsed.dateFrom, parsed.dateTo, parsed.rows.length, parsed.employees.length, JSON.stringify(parsed.warnings)).run();
-    const batch = await env.DB.prepare('SELECT id FROM import_batches WHERE fingerprint = ?').bind(fingerprint).first();
-    const importId = Number(batch.id);
-    const changes = aggregate.map(row => {
-      const employeeId = employeeIds.get(row.employeeKey);
-      if (!employeeId) throw new Error(`Djelatnik ${row.employee} nije moguće povezati.`);
-      return { ...row, employeeId, before: beforeByKey.get(`${employeeId}|${row.date}`) as any };
-    });
-    const statements: any[] = [];
-    const chunkSize = 100;
-    for (let start = 0; start < changes.length; start += chunkSize) {
-      const chunk = changes.slice(start, start + chunkSize);
-      const sales = chunk.map(row => [branch.id, row.employeeId, row.date, row.quantity, row.cents, importId, nowIso()]);
-      const revisions = chunk.map(row => [importId, branch.id, row.employeeId, row.date, row.before?.quantity ?? null, row.before?.value_cents ?? null, row.quantity, row.cents, row.before ? 0 : 1]);
-      statements.push(env.DB.prepare(`INSERT INTO sales_daily (branch_id, employee_id, sale_date, quantity, value_cents, source_import_id, updated_at)
-        SELECT json_extract(value,'$[0]'), json_extract(value,'$[1]'), json_extract(value,'$[2]'), json_extract(value,'$[3]'), json_extract(value,'$[4]'), json_extract(value,'$[5]'), json_extract(value,'$[6]') FROM json_each(?) WHERE 1=1
-        ON CONFLICT(branch_id, employee_id, sale_date) DO UPDATE SET quantity = excluded.quantity, value_cents = excluded.value_cents, source_import_id = excluded.source_import_id, updated_at = excluded.updated_at`)
-        .bind(JSON.stringify(sales)));
-      statements.push(env.DB.prepare(`INSERT INTO import_changes (import_id, branch_id, employee_id, sale_date, before_quantity, before_value_cents, after_quantity, after_value_cents, was_inserted)
-        SELECT json_extract(value,'$[0]'), json_extract(value,'$[1]'), json_extract(value,'$[2]'), json_extract(value,'$[3]'), json_extract(value,'$[4]'), json_extract(value,'$[5]'), json_extract(value,'$[6]'), json_extract(value,'$[7]'), json_extract(value,'$[8]') FROM json_each(?)`)
-        .bind(JSON.stringify(revisions)));
-    }
-    statements.push(env.DB.prepare("UPDATE import_batches SET status = 'success', updated_records = ?, error_message = NULL WHERE id = ?").bind(aggregate.length, importId));
-    statements.push(env.DB.prepare('INSERT INTO audit_logs (action, details_json) VALUES (?, ?)').bind('import.success', JSON.stringify({ importId, fileName: file.name })));
-    await env.DB.batch(statements);
-    return json({ ok: true, importId, fileName: file.name, dateFrom: parsed.dateFrom, dateTo: parsed.dateTo, rows: parsed.rows.length, records: aggregate.length, employees: parsed.employees.length, warnings: parsed.warnings });
-  } catch (error) {
-    console.error('import_failed', error);
-    await env.DB.prepare("UPDATE import_batches SET status = 'failed', error_message = ? WHERE fingerprint = ? AND status != 'success'").bind((error as Error).message, fingerprint).run();
-    return bad(`Uvoz nije dovršen: ${(error as Error).message}`, 422);
-  }
+  return importSalesWorkbook(request, env, { actor: { kind: 'legacy-admin' } });
 }
 
 async function restore(request: Request, env: Env, id: string) {

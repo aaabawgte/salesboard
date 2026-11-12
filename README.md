@@ -5,7 +5,7 @@ Interna prodajna analitika, jamstva i zahtjevi za smjene za deset Big Bang malop
 ## Korisničke uloge
 
 - **Zaposlenik** vidi svoje rezultate, mjesečni target poslovnice, kalkulator i evidenciju jamstava te vlastite zahtjeve za smjene.
-- **Voditelj** uz puni pregled svoje poslovnice postavlja broj radnih dana, target jamstava u eurima i razinu vidljivosti poretka te odobrava ili odbija zahtjeve za smjene.
+- **Voditelj** uz puni pregled svoje poslovnice postavlja broj radnih dana, target jamstava u eurima i razinu vidljivosti poretka, uvozi prodajne podatke za svoju poslovnicu te odobrava ili odbija zahtjeve za smjene.
 - **Superadmin** odobrava registracije i upravlja postavkama svih poslovnica.
 
 Registracija koristi korisničko ime u obliku `ime.prezime`, lozinku i odabranu poslovnicu. Novi račun ostaje na čekanju dok ga superadmin ne odobri. Lozinke su spremljene kao PBKDF2 hash, a sesijski tokeni samo kao SHA-256 sažeci.
@@ -46,7 +46,7 @@ Dobivene hashove postavite kao Cloudflare/Sites runtime secrets `DASHBOARD_PASSW
 
 ## Dnevni uvoz
 
-Administrator se prijavi u `Administracija`, odabere `.xlsx` izvještaj i pokrene uvoz. Parser zahtijeva `Datum`, `POSLOVNICA`, `KOMERCIJALIST`, `KOLIČINA` i `VREDNOST`, filtrira CCOW, normalizira hrvatske datume/decimale i sprema novčane vrijednosti u cijelim centima.
+Administrator se prijavi u `Administracija`, odabere `.xlsx` izvještaj i pokrene središnji uvoz za svih deset podržanih poslovnica. Voditelj isti izvještaj može učitati iz postavki poslovnice, ali server iz njega prihvaća samo retke njegove poslovnice. Parser zahtijeva `Datum`, `POSLOVNICA`, `KOMERCIJALIST`, `KOLIČINA` i `VREDNOST`, mapira potvrđene nazive poslovnica, normalizira hrvatske datume/decimale i sprema novčane vrijednosti u cijelim centima. Retci za Webshop, B2B, Veleprodaju i retci bez poslovnice preskaču se uz upozorenje.
 
 Uvoz je idempotentan po `(poslovnica, datum, djelatnik)`: preklapajući kumulativni izvještaj ažurira postojeći dnevni zapis, ali ga ne zbraja drugi put. Izvorni redovi se ne tretiraju kao računi. Za svaki uvoz sprema se fingerprint, upozorenja i prije/poslije vrijednost, čime je moguć rollback.
 

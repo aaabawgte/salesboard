@@ -1698,6 +1698,8 @@ html[data-vt="theme"]::view-transition-old(*), html[data-vt="theme"]::view-trans
   color: var(--text-3);
   font-size: 10px;
 }
+.manager-import { margin-top: var(--space-4); }
+.manager-import .dropzone p strong { color: var(--text); font-weight: 600; }
 .portal-admin-tools { margin-top: var(--space-4); }
 .portal-admin-tools > .success-message,
 .portal-admin-tools > .form-error { grid-column: 1 / -1; }

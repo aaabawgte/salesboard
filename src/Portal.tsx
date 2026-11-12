@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { BadgeCheck, Calculator, CalendarClock, Check, ChevronRight, CircleX, Clock3, KeyRound, Plus, Save, ShieldCheck, Trash2, UserRoundCheck, UsersRound } from 'lucide-react';
+import { BadgeCheck, Calculator, CalendarClock, Check, ChevronRight, CircleX, Clock3, FileSpreadsheet, KeyRound, Plus, Save, ShieldCheck, Trash2, Upload, UserRoundCheck, UsersRound } from 'lucide-react';
 import { api, apiEndpoint } from './api';
 import type { Branch, PortalUser, TargetProgress } from './api';
 import { calculateWarranty, euroToCents } from './lib/warranty';
@@ -162,7 +162,12 @@ export function ManagerCenter({ user, month, onUpdated }: { user: PortalUser; mo
   const [progress, setProgress] = useState<TargetProgress | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [importMessage, setImportMessage] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importing, setImporting] = useState(false);
   const query = user.role === 'superadmin' ? `&branchId=${branchId}` : '';
+  const selectedBranchName = branches.find(branch => branch.id === Number(branchId))?.name ?? user.branch.name;
 
   async function load() {
     const [targetResult, visibilityResult, branchResult] = await Promise.all([
@@ -192,7 +197,24 @@ export function ManagerCenter({ user, month, onUpdated }: { user: PortalUser; mo
     } catch (error) { setError((error as Error).message); }
   }
 
-  return <><div className="section-title"><div><span className="eyebrow">VODITELJSKE POSTAVKE</span><h1>Targeti i vidljivost</h1><p>Target jamstava je isključivo u eurima i vrijedi za cijelu poslovnicu.</p></div></div><section className="manager-settings"><article className="panel"><div className="panel-head"><div><span className="eyebrow">MJESEČNI PLAN</span><h3>Target jamstava</h3></div><ShieldCheck size={20}/></div><div className="form-grid">{user.role === 'superadmin' && <label className="wide">Poslovnica<select value={branchId} onChange={event => setBranchId(event.target.value)}>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}<label>Broj radnih dana<input type="number" min="1" max="31" value={days} onChange={event => setDays(event.target.value)}/></label><label>Mjesečni target (€)<input inputMode="decimal" value={target} onChange={event => setTarget(event.target.value)} placeholder="0,00"/></label><label className="wide">Što zaposlenici vide<select value={visibility} onChange={event => setVisibility(event.target.value as typeof visibility)}><option value="own">Samo vlastite rezultate</option><option value="rank">Vlastite rezultate i poziciju</option><option value="full">Cijeli poredak poslovnice</option></select></label></div><button className="primary-button" onClick={() => void save()}><Save size={16}/> Spremi postavke</button>{message && <p className="success-message"><Check size={16}/> {message}</p>}{error && <p className="form-error">{error}</p>}</article><article className="panel target-preview"><span className="eyebrow">TRENUTNI IZRAČUN</span><div><small>Mjesečni target</small><strong>{money(progress?.targetCents)}</strong></div><div><small>Dnevni target</small><strong>{money(progress?.dailyTargetCents)}</strong></div><div><small>Ostvareno</small><strong>{money(progress?.achievedCents)}</strong></div><div><small>Potrebno po preostalom danu</small><strong>{money(progress?.requiredDailyCents)}</strong></div>{progress && <div className="target-progress"><i style={{ width: `${Math.min(progress.progress * 100, 100)}%` }}/><span>{Math.round(progress.progress * 100)}%</span></div>}</article></section></>;
+  async function upload() {
+    if (!file) return;
+    setImporting(true); setImportMessage(''); setImportError('');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const result = await api<{ records: number; employees: number; dateFrom: string; dateTo: string }>(`/api/manage/import?branchId=${branchId}`, { method: 'POST', body: form });
+      setImportMessage(`Uvezeno: ${result.records} dnevnih zapisa i ${result.employees} djelatnika (${result.dateFrom} – ${result.dateTo}).`);
+      setFile(null);
+      onUpdated();
+    } catch (error) {
+      setImportError((error as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return <><div className="section-title"><div><span className="eyebrow">VODITELJSKE POSTAVKE</span><h1>Targeti i vidljivost</h1><p>Target jamstava je isključivo u eurima i vrijedi za cijelu poslovnicu.</p></div></div><section className="manager-settings"><article className="panel"><div className="panel-head"><div><span className="eyebrow">MJESEČNI PLAN</span><h3>Target jamstava</h3></div><ShieldCheck size={20}/></div><div className="form-grid">{user.role === 'superadmin' && <label className="wide">Poslovnica<select value={branchId} onChange={event => setBranchId(event.target.value)}>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}<label>Broj radnih dana<input type="number" min="1" max="31" value={days} onChange={event => setDays(event.target.value)}/></label><label>Mjesečni target (€)<input inputMode="decimal" value={target} onChange={event => setTarget(event.target.value)} placeholder="0,00"/></label><label className="wide">Što zaposlenici vide<select value={visibility} onChange={event => setVisibility(event.target.value as typeof visibility)}><option value="own">Samo vlastite rezultate</option><option value="rank">Vlastite rezultate i poziciju</option><option value="full">Cijeli poredak poslovnice</option></select></label></div><button className="primary-button" onClick={() => void save()}><Save size={16}/> Spremi postavke</button>{message && <p className="success-message"><Check size={16}/> {message}</p>}{error && <p className="form-error">{error}</p>}</article><article className="panel target-preview"><span className="eyebrow">TRENUTNI IZRAČUN</span><div><small>Mjesečni target</small><strong>{money(progress?.targetCents)}</strong></div><div><small>Dnevni target</small><strong>{money(progress?.dailyTargetCents)}</strong></div><div><small>Ostvareno</small><strong>{money(progress?.achievedCents)}</strong></div><div><small>Potrebno po preostalom danu</small><strong>{money(progress?.requiredDailyCents)}</strong></div>{progress && <div className="target-progress"><i style={{ width: `${Math.min(progress.progress * 100, 100)}%` }}/><span>{Math.round(progress.progress * 100)}%</span></div>}</article></section><section className="panel upload-panel manager-import"><div className={`dropzone ${file ? 'has-file' : ''}`}><span className="dropzone-icon"><FileSpreadsheet size={24}/></span><h3>Uvezi prodajne podatke</h3><p>Excel može sadržavati sve poslovnice. Uvest će se samo podaci za <strong>{selectedBranchName}</strong>.</p><label className="secondary-button file-button"><Upload size={16}/> <span className="file-name">{file ? file.name : 'Odaberi Excel datoteku'}</span><input className="visually-hidden" type="file" accept=".xlsx" onChange={event => { setFile(event.target.files?.[0] ?? null); setImportMessage(''); setImportError(''); }}/></label>{file && <button className={`primary-button ${importing ? 'is-loading' : ''}`} disabled={importing} onClick={() => void upload()}>{importing ? 'Uvoz u tijeku…' : 'Uvezi podatke'} <ChevronRight size={16}/></button>}{importMessage && <p className="success-message"><Check size={16}/> {importMessage}</p>}{importError && <p className="form-error">{importError}</p>}</div></section></>;
 }
 
 export function AccountCenter({ user }: { user: PortalUser }) {
