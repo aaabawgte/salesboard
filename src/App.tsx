@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, BarChart3, Calculator, CalendarClock, CalendarDays, Check, ChevronRight, CloudOff, FileSpreadsheet, Gauge, KeyRound, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Settings2, Shield, Sun, Target, TrendingUp, Trophy, Upload, Users, X } from 'lucide-react';
+import { Activity, BarChart3, Calculator, CalendarClock, CalendarDays, Check, ChevronDown, ChevronRight, CloudOff, Eye, FileSpreadsheet, Gauge, KeyRound, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Settings2, Shield, Sun, Target, TrendingUp, Trophy, Upload, UserRoundCheck, Users, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api, demoMode } from './api';
 import type { Analytics, Employee, PortalUser } from './api';
@@ -16,7 +16,10 @@ import { AccessScreen, AccountCenter, AdminPortalTools, ManagerCenter, ShiftCent
 import { Card, Empty, PeriodBar, Segmented, Skeleton, useMediaQuery, vtName } from './ui';
 import type { PeriodProps } from './ui';
 
-type Page = 'pregled' | 'poredak' | 'djelatnici' | 'usporedba' | 'povijest' | 'jamstva' | 'smjene' | 'upravljanje' | 'racun' | 'tv' | 'admin';
+type Page = 'pregled' | 'poredak' | 'djelatnici' | 'usporedba' | 'povijest' | 'jamstva' | 'smjene' | 'targeti' | 'uvoz' | 'vidljivost' | 'racun' | 'tv' | 'admin' | 'registracije' | 'poslovnice' | 'admin-uvoz';
+type NavEntry = { id: Page; label: string; icon: LucideIcon };
+type NavGroup = { id: string; label: string; icon: LucideIcon; items: NavEntry[] };
+type NavSection = { label: string; entries: Array<NavEntry | NavGroup> };
 type ReportProps = PeriodProps & { data: Analytics };
 type ShellProps = {
   page: Page;
@@ -24,7 +27,8 @@ type ShellProps = {
   dark: boolean;
   onToggleTheme: () => void;
   onLogout: () => void;
-  items?: Array<{ id: Page; label: string; icon: LucideIcon }>;
+  navigation: NavSection[];
+  canUseTv?: boolean;
   subtitle?: string;
   user?: PortalUser | null;
   children: ReactNode;
@@ -40,8 +44,14 @@ type ImportBatch = {
 type ImportResult = { records: number; employees: number; dateFrom: string; dateTo: string };
 type SortKey = 'cents' | 'quantity' | 'avg';
 
-const nav: Array<{ id: Page; label: string; icon: LucideIcon }> = [
-  { id: 'pregled', label: 'Pregled', icon: LayoutDashboard }, { id: 'poredak', label: 'Poredak', icon: Trophy }, { id: 'djelatnici', label: 'Djelatnici', icon: Users }, { id: 'usporedba', label: 'Usporedba', icon: Activity }, { id: 'povijest', label: 'Povijest', icon: BarChart3 }, { id: 'jamstva', label: 'Jamstva', icon: Calculator }, { id: 'smjene', label: 'Smjene', icon: CalendarClock }, { id: 'upravljanje', label: 'Postavke poslovnice', icon: Settings2 }, { id: 'racun', label: 'Moj račun', icon: KeyRound }, { id: 'tv', label: 'TV Mode', icon: CalendarDays }, { id: 'admin', label: 'Administracija', icon: Shield }
+const nav: NavEntry[] = [
+  { id: 'pregled', label: 'Pregled', icon: LayoutDashboard }, { id: 'poredak', label: 'Poredak', icon: Trophy }, { id: 'djelatnici', label: 'Djelatnici', icon: Users }, { id: 'usporedba', label: 'Usporedba', icon: Activity }, { id: 'povijest', label: 'Povijest', icon: BarChart3 }, { id: 'jamstva', label: 'Jamstva', icon: Calculator }, { id: 'smjene', label: 'Smjene i zahtjevi', icon: CalendarClock }, { id: 'targeti', label: 'Targeti', icon: Target }, { id: 'uvoz', label: 'Uvoz podataka', icon: Upload }, { id: 'vidljivost', label: 'Vidljivost rezultata', icon: Eye }, { id: 'racun', label: 'Moj račun', icon: KeyRound }, { id: 'tv', label: 'TV Mode', icon: CalendarDays }, { id: 'admin', label: 'Administracija', icon: Shield }, { id: 'registracije', label: 'Registracije', icon: UserRoundCheck }, { id: 'poslovnice', label: 'Poslovnice', icon: Settings2 }, { id: 'admin-uvoz', label: 'Centralni uvoz', icon: FileSpreadsheet }
+];
+const navEntry = (id: Page) => nav.find(item => item.id === id)!;
+const navGroup = (id: string, label: string, icon: LucideIcon, pages: Page[]): NavGroup => ({ id, label, icon, items: pages.map(navEntry) });
+const legacyNavigation: NavSection[] = [
+  { label: 'GLAVNO', entries: [navEntry('pregled'), navGroup('results', 'Rezultati', BarChart3, ['poredak', 'djelatnici', 'usporedba', 'povijest'])] },
+  { label: 'UPRAVLJANJE', entries: [navEntry('admin')] }
 ];
 const sortOptions = [['cents', 'Prodaja'], ['quantity', 'Količina'], ['avg', 'Prosjek']] as const;
 const shareText = (share: number | null) => share == null ? '—' : `${hrNumber(share * 100)} %`;
@@ -86,14 +96,19 @@ function Login({ onLogin }: { onLogin: () => void }) {
   </main>;
 }
 
-function Shell({ page, onNavigate, dark, onToggleTheme, onLogout, items = nav, subtitle = 'Big Bang Zagreb CCO West', user, children }: ShellProps) {
+function Shell({ page, onNavigate, dark, onToggleTheme, onLogout, navigation, canUseTv = false, subtitle = 'Big Bang Zagreb CCO West', user, children }: ShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(navigation.flatMap(section => section.entries).filter((entry): entry is NavGroup => 'items' in entry && entry.items.some(item => item.id === page)).map(group => group.id)));
   const compact = useMediaQuery('(max-width: 1023px)');
   const sidebar = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
-  const current = items.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'SalesBoard';
+  const current = nav.find(item => item.id === page)?.label ?? 'SalesBoard';
 
   useEffect(() => { if (!compact) setMobileOpen(false); }, [compact]);
+  useEffect(() => {
+    const activeGroups = navigation.flatMap(section => section.entries).filter((entry): entry is NavGroup => 'items' in entry && entry.items.some(item => item.id === page));
+    if (activeGroups.length) setOpenGroups(current => new Set([...current, ...activeGroups.map(group => group.id)]));
+  }, [page]);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -124,10 +139,22 @@ function Shell({ page, onNavigate, dark, onToggleTheme, onLogout, items = nav, s
     onNavigate(id, !compact);
   }
 
-  const item = (id: Page, label: string, Icon: LucideIcon, extra?: ReactNode) => <button key={id} className={page === id ? 'nav-item active' : 'nav-item'} aria-current={page === id ? 'page' : undefined} onClick={() => go(id)}>
+  const item = (id: Page, label: string, Icon: LucideIcon, nested = false) => <button key={id} className={`${page === id ? 'nav-item active' : 'nav-item'}${nested ? ' nav-subitem' : ''}`} aria-current={page === id ? 'page' : undefined} onClick={() => go(id)}>
     {page === id && <span className="nav-indicator" aria-hidden/>}
-    <Icon size={17} aria-hidden/><span>{label}</span>{extra}
+    <Icon size={17} aria-hidden/><span>{label}</span>
   </button>;
+
+  const group = (entry: NavGroup) => {
+    const expanded = openGroups.has(entry.id);
+    const active = entry.items.some(child => child.id === page);
+    const GroupIcon = entry.icon;
+    return <div className={`nav-group ${active ? 'active' : ''}`} key={entry.id}>
+      <button className={`nav-item nav-group-toggle ${active ? 'active' : ''}`} onClick={() => setOpenGroups(current => { const next = new Set(current); if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id); return next; })} aria-expanded={expanded}>
+        <GroupIcon size={17} aria-hidden/><span>{entry.label}</span><ChevronDown className="nav-chevron" size={15} aria-hidden/>
+      </button>
+      {expanded && <div className="nav-submenu">{entry.items.map(child => item(child.id, child.label, child.icon, true))}</div>}
+    </div>;
+  };
 
   return <div className="app-shell">
     <div className={`sidebar-backdrop ${mobileOpen ? 'open' : ''}`} onClick={() => setMobileOpen(false)} aria-hidden/>
@@ -138,10 +165,11 @@ function Shell({ page, onNavigate, dark, onToggleTheme, onLogout, items = nav, s
         <button className="icon-button mobile-close" onClick={() => setMobileOpen(false)} aria-label="Zatvori izbornik"><X size={18} aria-hidden/></button>
       </div>
       <nav aria-label="Glavna navigacija">
-        {items.map(entry => item(entry.id, entry.label, entry.icon, entry.id === 'admin' ? <span className="nav-dot" aria-hidden/> : undefined))}
+        {navigation.map(section => <section className="nav-section" key={section.label}><span className="nav-section-label">{section.label}</span>{section.entries.map(entry => 'items' in entry ? group(entry) : item(entry.id, entry.label, entry.icon))}</section>)}
       </nav>
       <div className="sidebar-bottom">
         {user && <div className="sidebar-user"><span className="avatar">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>{user.role === 'employee' ? 'Zaposlenik' : user.role === 'manager' ? 'Voditelj' : 'Superadmin'}</small></div></div>}
+        {user && item('racun', 'Moj račun', KeyRound)}
         <button className="nav-item" onClick={onToggleTheme}>{dark ? <Sun size={17} aria-hidden/> : <Moon size={17} aria-hidden/>}<span>{dark ? 'Svijetli način' : 'Tamni način'}</span></button>
         <button className="nav-item logout" onClick={onLogout}><LogOut size={17} aria-hidden/><span>Odjava</span></button>
       </div>
@@ -156,6 +184,7 @@ function Shell({ page, onNavigate, dark, onToggleTheme, onLogout, items = nav, s
         </div>
         <div className="top-actions">
           <span className="live-dot" aria-hidden/> <span className="tiny muted status-text">Podaci su zaštićeni</span>
+          {canUseTv && <button className="icon-button" onClick={() => go('tv')} aria-label="Otvori TV Mode" title="TV Mode"><CalendarDays size={17} aria-hidden/></button>}
           <button className="icon-button theme-toggle" onClick={onToggleTheme} aria-label={dark ? 'Svijetli način' : 'Tamni način'} title={dark ? 'Svijetli način' : 'Tamni način'}>
             <span key={dark ? 'sun' : 'moon'} className="theme-icon">{dark ? <Sun size={17} aria-hidden/> : <Moon size={17} aria-hidden/>}</span>
           </button>
@@ -582,7 +611,7 @@ function LegacyApp() {
   const selected = data?.employees.find(employee => employee.id === selectedId) ?? null;
   const report = data && { data, month, setMonth: selectMonth, onRefresh: refresh, loading };
   return <ChartThemeContext.Provider value={tokens}>
-    <Shell page={page} onNavigate={navigate} dark={dark} onToggleTheme={toggleTheme} onLogout={logout}>
+    <Shell page={page} onNavigate={navigate} dark={dark} onToggleTheme={toggleTheme} onLogout={logout} navigation={legacyNavigation} canUseTv>
       {!report ? <Skeleton/> : <div className="page">
         {page === 'pregled' && <Dashboard {...report} setPage={next => navigate(next, true)}/>}
         {page === 'poredak' && <Leaderboard {...report} morphId={morphId} onOpen={openProfile}/>}
@@ -711,22 +740,26 @@ export default function App() {
   const isEmployee = user?.role === 'employee';
   const fullLeaderboard = !isEmployee || user?.leaderboardVisibility === 'full';
   const maySeePosition = !isEmployee || user?.leaderboardVisibility !== 'own';
-  const allowedPages = sessionMode === 'legacy'
-    ? new Set<Page>(['pregled', 'poredak', 'djelatnici', 'usporedba', 'povijest', 'tv', 'admin'])
-    : new Set<Page>([
-      'pregled', 'jamstva', 'smjene', 'racun',
-      ...(maySeePosition ? ['poredak' as Page] : []),
-      ...(fullLeaderboard ? ['djelatnici' as Page, 'usporedba' as Page, 'povijest' as Page] : []),
-      ...(!isEmployee ? ['upravljanje' as Page, 'tv' as Page] : []),
-      ...(user?.role === 'superadmin' ? ['admin' as Page] : [])
-    ]);
-  const items = nav.filter(item => allowedPages.has(item.id));
+  const resultPages: Page[] = [
+    ...(maySeePosition ? ['poredak' as Page] : []),
+    ...(fullLeaderboard ? ['djelatnici' as Page, 'usporedba' as Page, 'povijest' as Page] : [])
+  ];
+  const navigation: NavSection[] = sessionMode === 'legacy' ? legacyNavigation : [
+    { label: 'GLAVNO', entries: [
+      navEntry('pregled'),
+      ...(resultPages.length ? [navGroup('results', 'Rezultati', BarChart3, resultPages)] : []),
+      navEntry('jamstva'),
+      ...(isEmployee ? [navEntry('smjene')] : [])
+    ] },
+    ...(!isEmployee ? [{ label: 'VODITELJ', entries: [navGroup('branch-management', 'Poslovnica', Settings2, ['targeti', 'uvoz', 'vidljivost', 'smjene'])] }] : []),
+    ...(user?.role === 'superadmin' ? [{ label: 'ADMINISTRACIJA', entries: [navGroup('administration', 'Administracija', Shield, ['registracije', 'poslovnice', 'admin-uvoz'])] }] : [])
+  ];
   const selected = data?.employees.find(employee => employee.id === selectedId) ?? null;
   const report = data && { data, month, setMonth: selectMonth, onRefresh: refresh, loading };
   const subtitle = user?.branch.name ?? 'Big Bang Zagreb CCO West';
 
   return <ChartThemeContext.Provider value={tokens}>
-    <Shell page={page} onNavigate={navigate} dark={dark} onToggleTheme={toggleTheme} onLogout={logout} items={items} subtitle={subtitle} user={user}>
+    <Shell page={page} onNavigate={navigate} dark={dark} onToggleTheme={toggleTheme} onLogout={logout} navigation={navigation} canUseTv={sessionMode === 'legacy' || !isEmployee} subtitle={subtitle} user={user}>
       {!report ? <Skeleton/> : <div className="page">
         {page === 'pregled' && <><TargetSummary data={data}/><Dashboard {...report} setPage={next => navigate(next, true)}/></>}
         {page === 'poredak' && <Leaderboard {...report} morphId={morphId} onOpen={openProfile}/>}
@@ -735,10 +768,14 @@ export default function App() {
         {page === 'povijest' && <History {...report}/>}
         {page === 'jamstva' && user && <WarrantyCenter/>}
         {page === 'smjene' && user && <ShiftCenter user={user}/>}
-        {page === 'upravljanje' && user && <ManagerCenter user={user} month={month} onUpdated={refresh}/>}
+        {page === 'targeti' && user && <ManagerCenter user={user} month={month} onUpdated={refresh} section="target"/>}
+        {page === 'uvoz' && user && <ManagerCenter user={user} month={month} onUpdated={refresh} section="import"/>}
+        {page === 'vidljivost' && user && <ManagerCenter user={user} month={month} onUpdated={refresh} section="visibility"/>}
         {page === 'racun' && user && <AccountCenter user={user}/>}
         {page === 'admin' && sessionMode === 'legacy' && <><Admin admin={admin} setAdmin={setAdmin} onRefresh={refresh}/>{admin && <AdminPortalTools month={month} onUpdated={refresh}/>}</>}
-        {page === 'admin' && user?.role === 'superadmin' && <><div className="section-title"><div><span className="eyebrow">CENTRALNO UPRAVLJANJE</span><h1>Superadmin</h1><p>Odobravanje korisnika i postavke svih poslovnica.</p></div></div><AdminPortalTools month={month} onUpdated={refresh}/></>}
+        {page === 'registracije' && user?.role === 'superadmin' && <AdminPortalTools month={month} onUpdated={refresh} section="registrations"/>}
+        {page === 'poslovnice' && user?.role === 'superadmin' && <AdminPortalTools month={month} onUpdated={refresh} section="branches"/>}
+        {page === 'admin-uvoz' && user?.role === 'superadmin' && <AdminPortalTools month={month} onUpdated={refresh} section="import"/>}
       </div>}
     </Shell>
   </ChartThemeContext.Provider>;

@@ -247,7 +247,39 @@ svg { flex-shrink: 0; }
 }
 .sidebar-head strong { display: block; font-size: var(--fs-md); font-weight: 600; letter-spacing: -0.01em; }
 .sidebar-head small { display: block; margin-top: 1px; font-size: var(--fs-2xs); color: var(--text-3); }
-.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar nav { display: flex; flex-direction: column; gap: var(--space-5); }
+.nav-section { display: flex; flex-direction: column; gap: 2px; }
+.nav-section-label {
+  padding: 0 var(--space-3) var(--space-2);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+}
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group-toggle .nav-chevron {
+  margin-left: auto;
+  color: var(--text-3);
+  transition: transform var(--dur-micro) var(--ease-standard), color var(--dur-micro) var(--ease-standard);
+}
+.nav-group-toggle[aria-expanded="true"] .nav-chevron { transform: rotate(180deg); }
+.nav-group-toggle.active { color: var(--text); }
+.nav-group-toggle.active .nav-chevron { color: var(--accent-strong); }
+.nav-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: var(--space-3);
+  animation: fade-in var(--dur-micro) var(--ease-out);
+}
+.nav-subitem {
+  min-height: 34px;
+  padding-left: var(--space-4);
+  font-size: var(--fs-xs);
+}
+.nav-subitem > svg { width: 15px; height: 15px; }
 
 .nav-item {
   position: relative;
@@ -281,7 +313,6 @@ svg { flex-shrink: 0; }
   view-transition-name: nav-indicator;
 }
 .nav-item > .nav-dot { width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: var(--warning); }
-.nav-divider { height: 1px; margin: var(--space-4) var(--space-3); background: var(--border); }
 .sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 2px; padding-top: var(--space-4); }
 .nav-item.logout:hover { color: var(--negative); background: var(--negative-soft); }
 
@@ -1700,7 +1731,9 @@ html[data-vt="theme"]::view-transition-old(*), html[data-vt="theme"]::view-trans
 }
 .manager-import { margin-top: var(--space-4); }
 .manager-import .dropzone p strong { color: var(--text); font-weight: 600; }
+.manager-branch-picker { margin-bottom: var(--space-4); }
 .portal-admin-tools { margin-top: var(--space-4); }
+.portal-admin-tools.single { grid-template-columns: minmax(0, 760px); }
 .portal-admin-tools > .success-message,
 .portal-admin-tools > .form-error { grid-column: 1 / -1; }
 .pending-count {
