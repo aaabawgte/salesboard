@@ -24,6 +24,11 @@ describe('warranty calculator', () => {
     expect(result.warrantyCents).toBe(900);
   });
 
+  it('supports every installment count between 1 and 36', () => {
+    const result = calculateWarranty({ originalPriceCents: 17_000, discountType: 'none', discountValue: 0, rateBasisPoints: 0, installments: 17 });
+    expect(result.installmentCents).toBe(1_000);
+  });
+
   it('parses Croatian decimal input', () => {
     expect(euroToCents('123,45')).toBe(12_345);
   });
