@@ -24,6 +24,7 @@ type Helpers = {
 
 export const USER_SESSION_HEADER = 'x-salesboard-user-session';
 const USER_SESSION_DAYS = 30;
+export const PASSWORD_PBKDF2_ITERATIONS = 100_000;
 const REGISTRATION_RETURN_URL = 'https://aaabawgte.github.io/salesboard/';
 const validDate = (value: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''));
 const validMonth = (value: unknown) => /^\d{4}-(0[1-9]|1[0-2])$/.test(String(value ?? ''));
@@ -63,7 +64,7 @@ async function digest(value: string) {
 }
 
 async function hashPassword(password: string) {
-  const iterations = 210_000;
+  const iterations = PASSWORD_PBKDF2_ITERATIONS;
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
   const derived = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256);
