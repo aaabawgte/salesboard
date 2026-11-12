@@ -2,7 +2,7 @@ import { employeeKey, normalizeEmployeeName } from '../src/lib/importer';
 import { calculateTargetProgress, estimateElapsedWorkingDays } from '../src/lib/targets';
 import { calculateWarranty } from '../src/lib/warranty';
 
-type Env = { DB: any; BULK_USER_SETUP_TOKEN?: string };
+type Env = { DB: any };
 type UserRole = 'employee' | 'manager' | 'superadmin';
 type PortalUser = {
   id: number;
@@ -69,20 +69,6 @@ export async function hashPassword(password: string) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
   const derived = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256);
   return `pbkdf2$sha256$${iterations}$${base64(salt)}$${base64(derived)}`;
-}
-
-async function setupTokenMatches(provided: string, expected: string | undefined) {
-  if (!provided || !expected) return false;
-  const encoder = new TextEncoder();
-  const [providedHash, expectedHash] = await Promise.all([
-    crypto.subtle.digest('SHA-256', encoder.encode(provided)),
-    crypto.subtle.digest('SHA-256', encoder.encode(expected))
-  ]);
-  const left = new Uint8Array(providedHash);
-  const right = new Uint8Array(expectedHash);
-  let mismatch = left.length ^ right.length;
-  for (let index = 0; index < Math.min(left.length, right.length); index += 1) mismatch |= left[index] ^ right[index];
-  return mismatch === 0;
 }
 
 function employeeIdentityKey(value: unknown) {
@@ -258,51 +244,6 @@ export async function handlePortalRequest(request: Request, env: Env, helpers: H
   const { json, bad } = helpers;
   const url = new URL(request.url);
   const path = url.pathname;
-
-  if (path === '/api/internal/bulk-users' && request.method === 'POST') {
-    if (!env.BULK_USER_SETUP_TOKEN) return null;
-    const authorization = request.headers.get('authorization') ?? '';
-    const providedToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-    if (!(await setupTokenMatches(providedToken, env.BULK_USER_SETUP_TOKEN))) return bad('Autorizacija nije valjana.', 403);
-    const body: any = await request.json().catch(() => ({}));
-    const password = text(body.password);
-    const entries = Array.isArray(body.users) ? body.users : [];
-    if (password.length < 8 || password.length > 128) return bad('Početna lozinka mora imati između 8 i 128 znakova.', 422);
-    if (!entries.length || entries.length > 50) return bad('Pošaljite između 1 i 50 korisnika.', 422);
-    const branch = await env.DB.prepare("SELECT id FROM branches WHERE code = 'CCOW'").first();
-    if (!branch) return bad('CCOW poslovnica nije pronađena.', 500);
-    const usernames = new Set<string>();
-    const users: Array<{ username: string; displayName: string; role: 'employee' | 'manager'; employeeId: number }> = [];
-    for (const entry of entries) {
-      const username = text(entry.username).toLocaleLowerCase('hr');
-      const displayName = normalizeEmployeeName(entry.displayName);
-      const role = entry.role === 'manager' ? 'manager' : 'employee';
-      if (!/^[a-z0-9čćžšđ]+\.[a-z0-9čćžšđ.-]+$/i.test(username) || username.length > 64) return bad(`Neispravno korisničko ime: ${username || 'prazno'}.`, 422);
-      if (displayName.length < 3 || displayName.length > 80) return bad(`Neispravno ime za ${username}.`, 422);
-      if (usernames.has(username)) return bad(`Korisničko ime ${username} poslano je više puta.`, 422);
-      usernames.add(username);
-      let employee = await matchingEmployee(env, displayName);
-      if (!employee) {
-        await env.DB.prepare('INSERT INTO employees (display_name, normalized_key) VALUES (?, ?) ON CONFLICT(normalized_key) DO NOTHING').bind(displayName, employeeKey(displayName)).run();
-        employee = await matchingEmployee(env, displayName);
-      }
-      if (!employee) return bad(`Profil djelatnika nije moguće povezati: ${displayName}.`, 500);
-      users.push({ username, displayName, role, employeeId: Number(employee.id) });
-    }
-    const now = nowIso();
-    const hashes = await Promise.all(users.map(() => hashPassword(password)));
-    const statements = users.map((entry, index) => env.DB.prepare(`INSERT INTO users
-      (username, display_name, password_hash, role, status, branch_id, employee_id, approved_by, approved_at, updated_at)
-      VALUES (?, ?, ?, ?, 'active', ?, ?, 'bulk-setup', ?, ?)
-      ON CONFLICT(username) DO UPDATE SET display_name = excluded.display_name, password_hash = excluded.password_hash,
-        role = excluded.role, status = 'active', branch_id = excluded.branch_id, employee_id = excluded.employee_id,
-        approved_by = excluded.approved_by, approved_at = excluded.approved_at, updated_at = excluded.updated_at`)
-      .bind(entry.username, entry.displayName, hashes[index], entry.role, branch.id, entry.employeeId, now, now));
-    statements.push(env.DB.prepare(`DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE username IN (${users.map(() => '?').join(', ')}))`).bind(...users.map(entry => entry.username)));
-    await env.DB.batch(statements);
-    await audit(env, 'users.bulk-activated', { count: users.length, branchId: Number(branch.id), usernames: users.map(entry => entry.username) });
-    return json({ ok: true, count: users.length, users: users.map(({ username, displayName, role, employeeId }) => ({ username, displayName, role, employeeId })) });
-  }
 
   if (path === '/api/branches' && request.method === 'GET') {
     const branches = await env.DB.prepare('SELECT id, code, name FROM branches ORDER BY name').all();
