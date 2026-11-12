@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { BadgeCheck, Calculator, CalendarClock, Check, ChevronRight, CircleX, Clock3, Plus, RefreshCw, Save, ShieldCheck, Trash2, UserRoundCheck, UsersRound } from 'lucide-react';
-import { api } from './api';
+import { api, apiEndpoint } from './api';
 import type { Branch, PortalUser, TargetProgress } from './api';
 import { calculateWarranty, euroToCents } from './lib/warranty';
 
@@ -19,16 +19,28 @@ export function AccessScreen({ onUserLogin, onLegacyLogin }: {
   onUserLogin: (user: PortalUser) => void;
   onLegacyLogin: () => void;
 }) {
+  const registrationQuery = typeof window === 'undefined' ? null : new URL(window.location.href).searchParams;
+  const registrationComplete = registrationQuery?.get('registration') === 'sent';
+  const registrationFailure = registrationQuery?.get('registrationError') ?? '';
   const [role, setRole] = useState<'employee' | 'manager'>('employee');
-  const [mode, setMode] = useState<'login' | 'register' | 'legacy'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'legacy'>(registrationComplete || registrationFailure ? 'register' : 'login');
   const [branches, setBranches] = useState<Branch[]>([]);
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [branchId, setBranchId] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useState(registrationComplete ? 'Zahtjev je poslan. Prijava će biti moguća nakon odobrenja administratora.' : '');
+  const [error, setError] = useState(registrationFailure);
   const [busy, setBusy] = useState(false);
+  const registrationAction = apiEndpoint('/api/register/form');
+
+  useEffect(() => {
+    if ((!registrationComplete && !registrationFailure) || typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('registration');
+    url.searchParams.delete('registrationError');
+    window.history.replaceState(window.history.state, '', url);
+  }, []);
 
   useEffect(() => {
     void api<{ branches: Branch[] }>('/api/branches').then(result => {
@@ -46,14 +58,6 @@ export function AccessScreen({ onUserLogin, onLegacyLogin }: {
       if (mode === 'legacy') {
         await api('/api/login', { method: 'POST', body: JSON.stringify({ password }) });
         onLegacyLogin();
-      } else if (mode === 'register') {
-        const result = await api<{ message: string }>('/api/register', {
-          method: 'POST',
-          headers: { 'content-type': 'text/plain;charset=UTF-8' },
-          body: JSON.stringify({ username, displayName, password, branchId: Number(branchId), role })
-        });
-        setMessage(result.message);
-        setPassword('');
       } else {
         const result = await api<{ user: PortalUser }>('/api/user/login', { method: 'POST', body: JSON.stringify({ username, password, expectedRole: role }) });
         onUserLogin(result.user);
@@ -65,7 +69,7 @@ export function AccessScreen({ onUserLogin, onLegacyLogin }: {
     }
   }
 
-  return <main className="login-shell portal-login"><div className="login-orb orb-one"/><div className="login-orb orb-two"/><section className="login-card portal-login-card"><div className="brand-mark"><span>SB</span></div><p className="eyebrow">BIG BANG · PRODAJNA ANALITIKA</p><h1>SalesBoard</h1><p className="login-copy">Rezultati, jamstva i smjene na jednom mjestu.</p>{mode !== 'legacy' && <div className="role-switch"><button type="button" className={role === 'employee' ? 'active' : ''} onClick={() => setRole('employee')}><UsersRound size={17}/><span>Zaposlenik</span></button><button type="button" className={role === 'manager' ? 'active' : ''} onClick={() => setRole('manager')}><ShieldCheck size={17}/><span>Voditelj</span></button></div>}<div className="auth-tabs"><button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Prijava</button><button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Registracija</button></div><form key={mode} onSubmit={submit} autoComplete={mode === 'register' ? 'off' : 'on'}>{mode !== 'legacy' && <><label htmlFor="username">Korisničko ime</label><input id="username" name={mode === 'register' ? 'registration-handle' : 'username'} autoFocus value={username} onChange={event => setUsername(event.target.value)} placeholder="ime.prezime" autoComplete={mode === 'register' ? 'off' : 'username'} autoCapitalize="none" spellCheck={false} data-form-type={mode === 'register' ? 'other' : undefined}/></>}{mode === 'register' && <><label htmlFor="display-name">Ime i prezime</label><input id="display-name" name="registration-display-name" value={displayName} onChange={event => setDisplayName(event.target.value)} placeholder="Ime Prezime" autoComplete="off"/><label htmlFor="branch">Maloprodajna jedinica</label><select id="branch" value={branchId} onChange={event => setBranchId(event.target.value)}>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></>}<label htmlFor="password">{mode === 'legacy' ? 'Interna pristupna lozinka' : 'Lozinka'}</label><input id="password" name={mode === 'register' ? 'registration-password' : 'password'} type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder={mode === 'register' ? 'Najmanje 8 znakova' : 'Unesite lozinku'} autoComplete={mode === 'register' ? 'new-password' : 'current-password'}/><button className="primary-button full" disabled={busy} type="submit">{busy ? 'Pričekajte…' : mode === 'register' ? 'Pošalji zahtjev' : 'Prijava'} <ChevronRight size={17}/></button>{message && <p className="success-message"><Check size={16}/> {message}</p>}{error && <p className="form-error">{error}</p>}</form><button className="legacy-link" type="button" onClick={() => { setMode(mode === 'legacy' ? 'login' : 'legacy'); setError(''); }}>{mode === 'legacy' ? 'Natrag na korisničku prijavu' : 'Interni pristup i administracija'}</button><p className="muted tiny">Novi račun aktivira se tek nakon administratorskog odobrenja.</p></section></main>;
+  return <main className="login-shell portal-login"><div className="login-orb orb-one"/><div className="login-orb orb-two"/><section className="login-card portal-login-card"><div className="brand-mark"><span>SB</span></div><p className="eyebrow">BIG BANG · PRODAJNA ANALITIKA</p><h1>SalesBoard</h1><p className="login-copy">Rezultati, jamstva i smjene na jednom mjestu.</p>{mode !== 'legacy' && <div className="role-switch"><button type="button" className={role === 'employee' ? 'active' : ''} onClick={() => setRole('employee')}><UsersRound size={17}/><span>Zaposlenik</span></button><button type="button" className={role === 'manager' ? 'active' : ''} onClick={() => setRole('manager')}><ShieldCheck size={17}/><span>Voditelj</span></button></div>}<div className="auth-tabs"><button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Prijava</button><button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Registracija</button></div><form key={mode} onSubmit={mode === 'register' ? undefined : submit} action={mode === 'register' ? registrationAction : undefined} method={mode === 'register' ? 'post' : undefined} autoComplete={mode === 'register' ? 'off' : 'on'}>{mode === 'register' && <><input type="hidden" name="username" value={username}/><input type="hidden" name="displayName" value={displayName}/><input type="hidden" name="password" value={password}/><input type="hidden" name="branchId" value={branchId}/><input type="hidden" name="role" value={role}/></>}{mode !== 'legacy' && <><label htmlFor="username">Korisničko ime</label><input id="username" name={mode === 'register' ? 'registration-handle' : 'username'} autoFocus value={username} onChange={event => setUsername(event.target.value)} placeholder="ime.prezime" autoComplete={mode === 'register' ? 'off' : 'username'} autoCapitalize="none" spellCheck={false} data-form-type={mode === 'register' ? 'other' : undefined}/></>}{mode === 'register' && <><label htmlFor="display-name">Ime i prezime</label><input id="display-name" name="registration-display-name" value={displayName} onChange={event => setDisplayName(event.target.value)} placeholder="Ime Prezime" autoComplete="off"/><label htmlFor="branch">Maloprodajna jedinica</label><select id="branch" value={branchId} onChange={event => setBranchId(event.target.value)}>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></>}<label htmlFor="password">{mode === 'legacy' ? 'Interna pristupna lozinka' : 'Lozinka'}</label><input id="password" name={mode === 'register' ? 'registration-password' : 'password'} type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder={mode === 'register' ? 'Najmanje 8 znakova' : 'Unesite lozinku'} autoComplete={mode === 'register' ? 'new-password' : 'current-password'}/><button className="primary-button full" disabled={busy} type="submit">{busy ? 'Pričekajte…' : mode === 'register' ? 'Pošalji zahtjev' : 'Prijava'} <ChevronRight size={17}/></button>{message && <p className="success-message"><Check size={16}/> {message}</p>}{error && <p className="form-error">{error}</p>}</form><button className="legacy-link" type="button" onClick={() => { setMode(mode === 'legacy' ? 'login' : 'legacy'); setError(''); }}>{mode === 'legacy' ? 'Natrag na korisničku prijavu' : 'Interni pristup i administracija'}</button><p className="muted tiny">Novi račun aktivira se tek nakon administratorskog odobrenja.</p></section></main>;
 }
 
 type WarrantyRule = { id: number; code: string; product_group: 'A' | 'B' | 'MOBILE' | 'BIKE'; name: string; rate_basis_points: number };

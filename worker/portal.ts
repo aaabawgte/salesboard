@@ -24,6 +24,7 @@ type Helpers = {
 
 export const USER_SESSION_HEADER = 'x-salesboard-user-session';
 const USER_SESSION_DAYS = 30;
+const REGISTRATION_RETURN_URL = 'https://aaabawgte.github.io/salesboard/';
 const validDate = (value: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''));
 const validMonth = (value: unknown) => /^\d{4}-(0[1-9]|1[0-2])$/.test(String(value ?? ''));
 const nowIso = () => new Date().toISOString();
@@ -32,6 +33,21 @@ const integer = (value: unknown) => {
   const number = Number(value);
   return Number.isFinite(number) ? Math.round(number) : 0;
 };
+
+async function registrationBody(request: Request) {
+  const contentType = request.headers.get('content-type') ?? '';
+  if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
+    return Object.fromEntries(await request.formData());
+  }
+  return request.json().catch(() => ({}));
+}
+
+function registrationRedirect(error = '') {
+  const url = new URL(REGISTRATION_RETURN_URL);
+  if (error) url.searchParams.set('registrationError', error);
+  else url.searchParams.set('registration', 'sent');
+  return Response.redirect(url.toString(), 303);
+}
 
 function base64(bytes: ArrayBuffer | Uint8Array) {
   return btoa(String.fromCharCode(...new Uint8Array(bytes instanceof ArrayBuffer ? bytes : bytes.buffer)));
@@ -223,26 +239,32 @@ export async function handlePortalRequest(request: Request, env: Env, helpers: H
     return json({ branches: branches.results ?? [] });
   }
 
-  if (path === '/api/register' && request.method === 'POST') {
-    const body: any = await request.json().catch(() => ({}));
+  if ((path === '/api/register' || path === '/api/register/form') && request.method === 'POST') {
+    const browserForm = path === '/api/register/form';
+    const fail = (message: string, status = 422) => browserForm ? registrationRedirect(message) : bad(message, status);
+    const body: any = await registrationBody(request);
     const username = text(body.username).toLocaleLowerCase('hr');
     const displayName = normalizeEmployeeName(body.displayName);
     const password = text(body.password);
     const branchId = integer(body.branchId);
     const role = body.role === 'manager' ? 'manager' : 'employee';
-    if (!/^[a-z0-9čćžšđ]+\.[a-z0-9čćžšđ.-]+$/i.test(username) || username.length > 64) return bad('Korisničko ime mora biti u obliku ime.prezime.', 422);
-    if (displayName.length < 3 || displayName.length > 80) return bad('Unesite ime i prezime.', 422);
-    if (password.length < 8 || password.length > 128) return bad('Lozinka mora imati najmanje 8 znakova.', 422);
+    if (!/^[a-z0-9čćžšđ]+\.[a-z0-9čćžšđ.-]+$/i.test(username) || username.length > 64) return fail('Korisničko ime mora biti u obliku ime.prezime.');
+    if (displayName.length < 3 || displayName.length > 80) return fail('Unesite ime i prezime.');
+    if (password.length < 8 || password.length > 128) return fail('Lozinka mora imati najmanje 8 znakova.');
     const branch = await env.DB.prepare('SELECT id FROM branches WHERE id = ?').bind(branchId).first();
-    if (!branch) return bad('Odaberite valjanu maloprodajnu jedinicu.', 422);
+    if (!branch) return fail('Odaberite valjanu maloprodajnu jedinicu.');
     const employee = await env.DB.prepare('SELECT id FROM employees WHERE normalized_key = ?').bind(employeeKey(displayName)).first();
     try {
       await env.DB.prepare(`INSERT INTO users (username, display_name, password_hash, role, status, branch_id, employee_id)
         VALUES (?, ?, ?, ?, 'pending', ?, ?)`).bind(username, displayName, await hashPassword(password), role, branchId, employee?.id ?? null).run();
       await audit(env, 'user.registered', { username, branchId, role });
-      return json({ ok: true, status: 'pending', message: 'Zahtjev je poslan. Prijava će biti moguća nakon odobrenja administratora.' }, 201);
+      return browserForm ? registrationRedirect() : json({ ok: true, status: 'pending', message: 'Zahtjev je poslan. Prijava će biti moguća nakon odobrenja administratora.' }, 201);
     } catch (error) {
-      if (String(error).toLowerCase().includes('unique')) return bad('To korisničko ime već postoji.', 409);
+      if (String(error).toLowerCase().includes('unique')) return fail('To korisničko ime već postoji.', 409);
+      if (browserForm) {
+        console.error('registration_form_failed', error);
+        return registrationRedirect('Registracija trenutno nije dostupna. Pokušajte ponovno.');
+      }
       throw error;
     }
   }

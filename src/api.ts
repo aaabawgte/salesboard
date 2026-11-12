@@ -6,6 +6,7 @@ export type Analytics = { from: string; to: string; totalCents: number; total: n
 
 export const demoMode = import.meta.env.DEV && import.meta.env.MODE === 'development' && import.meta.env.VITE_DEMO_MODE === 'true';
 const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+export const apiEndpoint = (path: string) => `${apiBaseUrl}${path}`;
 const dashboardTokenKey = 'salesboard-dashboard-session';
 const adminTokenKey = 'salesboard-admin-session';
 const userTokenKey = 'salesboard-user-session';
@@ -40,7 +41,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const dashboardToken = storedToken(dashboardTokenKey);
   const adminToken = storedToken(adminTokenKey);
   const userToken = storedToken(userTokenKey);
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetch(apiEndpoint(path), {
     ...init,
     headers: {
       ...(init?.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
