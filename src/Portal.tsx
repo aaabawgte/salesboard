@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { BadgeCheck, Calculator, CalendarClock, Check, ChevronRight, CircleX, Clock3, Plus, RefreshCw, Save, ShieldCheck, Trash2, UserRoundCheck, UsersRound } from 'lucide-react';
+import { BadgeCheck, Calculator, CalendarClock, Check, ChevronRight, CircleX, Clock3, KeyRound, Plus, RefreshCw, Save, ShieldCheck, Trash2, UserRoundCheck, UsersRound } from 'lucide-react';
 import { api, apiEndpoint } from './api';
 import type { Branch, PortalUser, TargetProgress } from './api';
 import { calculateWarranty, euroToCents } from './lib/warranty';
@@ -233,6 +233,36 @@ export function ManagerCenter({ user, month, onUpdated }: { user: PortalUser; mo
   }
 
   return <><div className="section-title"><div><span className="eyebrow">VODITELJSKE POSTAVKE</span><h1>Targeti i vidljivost</h1><p>Target jamstava je isključivo u eurima i vrijedi za cijelu poslovnicu.</p></div></div><section className="manager-settings"><article className="panel"><div className="panel-head"><div><span className="eyebrow">MJESEČNI PLAN</span><h3>Target jamstava</h3></div><ShieldCheck size={20}/></div><div className="form-grid">{user.role === 'superadmin' && <label className="wide">Poslovnica<select value={branchId} onChange={event => setBranchId(event.target.value)}>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}<label>Broj radnih dana<input type="number" min="1" max="31" value={days} onChange={event => setDays(event.target.value)}/></label><label>Mjesečni target (€)<input inputMode="decimal" value={target} onChange={event => setTarget(event.target.value)} placeholder="0,00"/></label><label className="wide">Što zaposlenici vide<select value={visibility} onChange={event => setVisibility(event.target.value as typeof visibility)}><option value="own">Samo vlastite rezultate</option><option value="rank">Vlastite rezultate i poziciju</option><option value="full">Cijeli poredak poslovnice</option></select></label></div><button className="primary-button" onClick={() => void save()}><Save size={16}/> Spremi postavke</button>{message && <p className="success-message"><Check size={16}/> {message}</p>}{error && <p className="form-error">{error}</p>}</article><article className="panel target-preview"><span className="eyebrow">TRENUTNI IZRAČUN</span><div><small>Mjesečni target</small><strong>{money(progress?.targetCents)}</strong></div><div><small>Dnevni target</small><strong>{money(progress?.dailyTargetCents)}</strong></div><div><small>Ostvareno</small><strong>{money(progress?.achievedCents)}</strong></div><div><small>Potrebno po preostalom danu</small><strong>{money(progress?.requiredDailyCents)}</strong></div>{progress && <div className="target-progress"><i style={{ width: `${Math.min(progress.progress * 100, 100)}%` }}/><span>{Math.round(progress.progress * 100)}%</span></div>}</article></section></>;
+}
+
+export function AccountCenter({ user }: { user: PortalUser }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setMessage('');
+    setError('');
+    if (newPassword !== confirmation) { setError('Nova lozinka i potvrda nisu jednake.'); return; }
+    setBusy(true);
+    try {
+      await api('/api/user/password', { method: 'PATCH', body: JSON.stringify({ currentPassword, newPassword }) });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmation('');
+      setMessage('Lozinka je uspješno promijenjena. Od sljedeće prijave koristite novu lozinku.');
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <><div className="section-title"><div><span className="eyebrow">MOJ RAČUN</span><h1>Pristup i sigurnost</h1><p>Promijenite početnu lozinku nakon prve prijave.</p></div></div><section className="account-settings"><article className="panel"><div className="panel-head"><div><span className="eyebrow">{user.username}</span><h3>Promjena lozinke</h3></div><KeyRound size={20}/></div><form className="form-grid" onSubmit={submit}><label className="wide">Trenutna lozinka<input type="password" autoComplete="current-password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} required/></label><label>Nova lozinka<input type="password" autoComplete="new-password" minLength={8} maxLength={128} value={newPassword} onChange={event => setNewPassword(event.target.value)} required/></label><label>Potvrdite novu lozinku<input type="password" autoComplete="new-password" minLength={8} maxLength={128} value={confirmation} onChange={event => setConfirmation(event.target.value)} required/></label><button className="primary-button" type="submit" disabled={busy}><KeyRound size={16}/> {busy ? 'Spremanje…' : 'Promijeni lozinku'}</button></form>{message && <p className="success-message"><Check size={16}/> {message}</p>}{error && <p className="form-error">{error}</p>}</article></section></>;
 }
 
 type AdminBranch = Branch & { leaderboard_visibility: 'own' | 'rank' | 'full'; pending_users: number };

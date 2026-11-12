@@ -14,6 +14,7 @@ describe('registration transport', () => {
     const DB = {
       prepare(sql: string) {
         return {
+          all: async () => sql.includes('FROM employees') ? { results: [] } : { results: [] },
           bind(...values: unknown[]) {
             return {
               first: async () => sql.includes('FROM branches') ? { id: 9 } : null,

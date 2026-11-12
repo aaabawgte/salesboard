@@ -1548,6 +1548,11 @@ html[data-vt="theme"]::view-transition-old(*), html[data-vt="theme"]::view-trans
   grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
 }
+.account-settings { max-width: 720px; }
+.account-settings .panel { padding: var(--space-5); }
+.account-settings .form-grid { margin-bottom: 0; }
+.account-settings .success-message,
+.account-settings .form-error { margin-top: var(--space-4); }
 .shift-form {
   display: grid;
   grid-template-columns: 1fr 1fr;

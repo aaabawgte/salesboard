@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, BarChart3, Calculator, CalendarClock, CalendarDays, Check, ChevronRight, CloudOff, FileSpreadsheet, Gauge, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Settings2, Shield, Sun, Target, TrendingUp, Trophy, Upload, Users, X } from 'lucide-react';
+import { Activity, BarChart3, Calculator, CalendarClock, CalendarDays, Check, ChevronRight, CloudOff, FileSpreadsheet, Gauge, KeyRound, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Settings2, Shield, Sun, Target, TrendingUp, Trophy, Upload, Users, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api, demoMode } from './api';
 import type { Analytics, Employee, PortalUser } from './api';
@@ -12,11 +12,11 @@ import { ChartThemeContext, chartTokens, useChartTheme } from './lib/chart-theme
 import { hrDate, hrMoney, hrNumber, initials, monthName } from './lib/format';
 import { withViewTransition } from './lib/motion';
 import { getMonthRange, getReportingMonth } from './lib/report-period';
-import { AccessScreen, AdminPortalTools, ManagerCenter, ShiftCenter, WarrantyCenter } from './Portal';
+import { AccessScreen, AccountCenter, AdminPortalTools, ManagerCenter, ShiftCenter, WarrantyCenter } from './Portal';
 import { Card, Empty, PeriodBar, Segmented, Skeleton, useMediaQuery, vtName } from './ui';
 import type { PeriodProps } from './ui';
 
-type Page = 'pregled' | 'poredak' | 'djelatnici' | 'usporedba' | 'povijest' | 'jamstva' | 'smjene' | 'upravljanje' | 'tv' | 'admin';
+type Page = 'pregled' | 'poredak' | 'djelatnici' | 'usporedba' | 'povijest' | 'jamstva' | 'smjene' | 'upravljanje' | 'racun' | 'tv' | 'admin';
 type ReportProps = PeriodProps & { data: Analytics };
 type ShellProps = {
   page: Page;
@@ -41,7 +41,7 @@ type ImportResult = { records: number; employees: number; dateFrom: string; date
 type SortKey = 'cents' | 'quantity' | 'avg';
 
 const nav: Array<{ id: Page; label: string; icon: LucideIcon }> = [
-  { id: 'pregled', label: 'Pregled', icon: LayoutDashboard }, { id: 'poredak', label: 'Poredak', icon: Trophy }, { id: 'djelatnici', label: 'Djelatnici', icon: Users }, { id: 'usporedba', label: 'Usporedba', icon: Activity }, { id: 'povijest', label: 'Povijest', icon: BarChart3 }, { id: 'jamstva', label: 'Jamstva', icon: Calculator }, { id: 'smjene', label: 'Smjene', icon: CalendarClock }, { id: 'upravljanje', label: 'Postavke poslovnice', icon: Settings2 }, { id: 'tv', label: 'TV Mode', icon: CalendarDays }, { id: 'admin', label: 'Administracija', icon: Shield }
+  { id: 'pregled', label: 'Pregled', icon: LayoutDashboard }, { id: 'poredak', label: 'Poredak', icon: Trophy }, { id: 'djelatnici', label: 'Djelatnici', icon: Users }, { id: 'usporedba', label: 'Usporedba', icon: Activity }, { id: 'povijest', label: 'Povijest', icon: BarChart3 }, { id: 'jamstva', label: 'Jamstva', icon: Calculator }, { id: 'smjene', label: 'Smjene', icon: CalendarClock }, { id: 'upravljanje', label: 'Postavke poslovnice', icon: Settings2 }, { id: 'racun', label: 'Moj račun', icon: KeyRound }, { id: 'tv', label: 'TV Mode', icon: CalendarDays }, { id: 'admin', label: 'Administracija', icon: Shield }
 ];
 const sortOptions = [['cents', 'Prodaja'], ['quantity', 'Količina'], ['avg', 'Prosjek']] as const;
 const shareText = (share: number | null) => share == null ? '—' : `${hrNumber(share * 100)} %`;
@@ -714,7 +714,7 @@ export default function App() {
   const allowedPages = sessionMode === 'legacy'
     ? new Set<Page>(['pregled', 'poredak', 'djelatnici', 'usporedba', 'povijest', 'tv', 'admin'])
     : new Set<Page>([
-      'pregled', 'jamstva', 'smjene',
+      'pregled', 'jamstva', 'smjene', 'racun',
       ...(maySeePosition ? ['poredak' as Page] : []),
       ...(fullLeaderboard ? ['djelatnici' as Page, 'usporedba' as Page, 'povijest' as Page] : []),
       ...(!isEmployee ? ['upravljanje' as Page, 'tv' as Page] : []),
@@ -736,6 +736,7 @@ export default function App() {
         {page === 'jamstva' && user && <WarrantyCenter user={user} onSaved={refresh}/>}
         {page === 'smjene' && user && <ShiftCenter user={user}/>}
         {page === 'upravljanje' && user && <ManagerCenter user={user} month={month} onUpdated={refresh}/>}
+        {page === 'racun' && user && <AccountCenter user={user}/>}
         {page === 'admin' && sessionMode === 'legacy' && <><Admin admin={admin} setAdmin={setAdmin} onRefresh={refresh}/>{admin && <AdminPortalTools month={month} onUpdated={refresh}/>}</>}
         {page === 'admin' && user?.role === 'superadmin' && <><div className="section-title"><div><span className="eyebrow">CENTRALNO UPRAVLJANJE</span><h1>Superadmin</h1><p>Odobravanje korisnika i postavke svih poslovnica.</p></div></div><AdminPortalTools month={month} onUpdated={refresh}/></>}
       </div>}
