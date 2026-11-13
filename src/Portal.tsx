@@ -78,6 +78,26 @@ type Draft = { key: string; group: WarrantyRule['product_group']; warrantyRuleId
 const installmentTicks = [1, 6, 12, 18, 24, 30, 36];
 const blankDraft = (): Draft => ({ key: crypto.randomUUID(), group: 'A', warrantyRuleId: '', originalPrice: '', discountType: 'none', discountValue: '', installments: '1' });
 const groupLabels = { A: 'Grupa A', B: 'Grupa B', MOBILE: 'Mobiteli', BIKE: 'Bicikli' };
+const warrantyLabels: Record<string, string> = {
+  A_3P2: 'Produljeno jamstvo · 3 + 2 godine',
+  A_2P3: 'Produljeno jamstvo · 2 + 3 godine',
+  A_5P2: 'Produljeno jamstvo · 5 + 2 godine',
+  A_2P3_DAMAGE_5: 'Jamstvo 2 + 3 godine + zaštita od loma',
+  A_3P2_DAMAGE_5: 'Jamstvo 3 + 2 godine + zaštita od loma',
+  A_5P2_DAMAGE_7: 'Jamstvo 5 + 2 godine + zaštita od loma',
+  B_3P2: 'Produljeno jamstvo · 3 + 2 godine',
+  B_2P3: 'Produljeno jamstvo · 2 + 3 godine',
+  B_5P2: 'Produljeno jamstvo · 5 + 2 godine',
+  B_2P3_DAMAGE_5: 'Jamstvo 2 + 3 godine + zaštita od loma',
+  B_3P2_DAMAGE_5: 'Jamstvo 3 + 2 godine + zaštita od loma',
+  B_5P2_DAMAGE_7: 'Jamstvo 5 + 2 godine + zaštita od loma',
+  MOBILE_DAMAGE_1: 'Zaštita od loma i oštećenja · 1 godina',
+  MOBILE_DAMAGE_2: 'Zaštita od loma i oštećenja · 2 godine',
+  MOBILE_2P1: 'Produljeno jamstvo · 2 + 1 godina',
+  BIKE_2P1: 'Produljeno jamstvo · 2 + 1 godina',
+  BIKE_2P1_DAMAGE_3: 'Jamstvo 2 + 1 godina + zaštita od loma',
+};
+const warrantyLabel = (rule: WarrantyRule | undefined) => rule ? warrantyLabels[rule.code] ?? rule.name : 'Dodatno jamstvo';
 
 export function WarrantyCenter() {
   const [rules, setRules] = useState<WarrantyRule[]>([]);
@@ -114,7 +134,7 @@ export function WarrantyCenter() {
     return {
       key: draft.key,
       label: drafts.length === 1 ? 'Odabrani proizvod' : `Proizvod ${index + 1}`,
-      warrantyName: rule?.name ?? 'Dodatno jamstvo',
+      warrantyName: warrantyLabel(rule),
       installments,
       priceCents: calculation.discountedPriceCents,
       totalCents: calculation.totalCents,
@@ -151,7 +171,7 @@ export function WarrantyCenter() {
             </div>
             <div className="form-grid">
               <label>Grupa<select value={draft.group} onChange={event => { const group = event.target.value as Draft['group']; update(draft.key, { group, warrantyRuleId: String(rules.find(rule => rule.product_group === group)?.id ?? '') }); }}>{Object.entries(groupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-              <label>Vrsta jamstva<select value={draft.warrantyRuleId} onChange={event => update(draft.key, { warrantyRuleId: event.target.value })}>{groupRules.map(rule => <option key={rule.id} value={rule.id}>{rule.name} · {rule.rate_basis_points / 100}%</option>)}</select></label>
+              <label>Vrsta jamstva<select value={draft.warrantyRuleId} onChange={event => update(draft.key, { warrantyRuleId: event.target.value })}>{groupRules.map(rule => <option key={rule.id} value={rule.id}>{warrantyLabel(rule)} · {rule.rate_basis_points / 100}%</option>)}</select></label>
               <label>Originalna cijena (€)<input inputMode="decimal" value={draft.originalPrice} onChange={event => update(draft.key, { originalPrice: event.target.value })} placeholder="0,00"/></label>
               <label>Popust<select value={draft.discountType} onChange={event => update(draft.key, { discountType: event.target.value as Draft['discountType'], discountValue: '' })}><option value="none">Bez popusta</option><option value="percent">Postotak (%)</option><option value="fixed">Fiksno (€)</option></select></label>
               {draft.discountType !== 'none' && <label>Vrijednost popusta<input inputMode="decimal" value={draft.discountValue} onChange={event => update(draft.key, { discountValue: event.target.value })} placeholder="0"/></label>}
