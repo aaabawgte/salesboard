@@ -156,7 +156,7 @@ function requestPeriod(request: Request) {
 async function targetForMonth(env: Env, branchId: number, month: string) {
   const target = await env.DB.prepare('SELECT working_days_total, warranty_target_cents FROM monthly_targets WHERE branch_id = ? AND month = ?').bind(branchId, month).first();
   const { from, to } = monthRange(month);
-  const achieved = await env.DB.prepare('SELECT COALESCE(SUM(warranty_cents), 0) AS cents FROM warranty_sales WHERE branch_id = ? AND sold_at BETWEEN ? AND ?').bind(branchId, from, to).first();
+  const achieved = await env.DB.prepare('SELECT COALESCE(SUM(value_cents), 0) AS cents FROM sales_daily WHERE branch_id = ? AND sale_date BETWEEN ? AND ?').bind(branchId, from, to).first();
   const achievedCents = Number(achieved?.cents ?? 0);
   if (!target) return { configured: false, ...calculateTargetProgress(0, achievedCents, 1, 0) };
   const workingDaysTotal = Number(target.working_days_total);

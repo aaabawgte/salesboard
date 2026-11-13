@@ -32,7 +32,7 @@ export async function importSalesWorkbook(request: Request, env: Env, scope: Imp
   const scopeKey = scope.branchCode ?? 'ALL';
   const fingerprint = `${await digest(buffer)}:${scopeKey}`;
   const duplicate = await env.DB.prepare("SELECT id, imported_at FROM import_batches WHERE fingerprint = ? AND status = 'success'").bind(fingerprint).first();
-  if (duplicate) return json({ duplicate: true, message: 'Ova je datoteka već uvezena za odabranu poslovnicu.', importId: duplicate.id, importedAt: duplicate.imported_at }, 409);
+  if (duplicate) return json({ duplicate: true, message: 'Ova je datoteka već uvezena za odabranu poslovnicu.', importId: duplicate.id, importedAt: duplicate.imported_at });
 
   let parsed;
   try {

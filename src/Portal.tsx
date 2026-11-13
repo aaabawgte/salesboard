@@ -343,8 +343,8 @@ export function ManagerCenter({ user, month, onUpdated, section }: { user: Porta
     try {
       const form = new FormData();
       form.append('file', file);
-      const result = await api<{ records: number; employees: number; dateFrom: string; dateTo: string }>(`/api/manage/import?branchId=${branchId}`, { method: 'POST', body: form });
-      setImportMessage(`Uvezeno: ${result.records} dnevnih zapisa i ${result.employees} djelatnika (${result.dateFrom} – ${result.dateTo}).`);
+      const result = await api<{ duplicate?: boolean; message?: string; records: number; employees: number; dateFrom: string; dateTo: string }>(`/api/manage/import?branchId=${branchId}`, { method: 'POST', body: form });
+      setImportMessage(result.duplicate ? result.message ?? 'Ova datoteka je već uvezena.' : `Uvezeno: ${result.records} dnevnih zapisa i ${result.employees} djelatnika (${result.dateFrom} – ${result.dateTo}).`);
       setFile(null);
       onUpdated();
     } catch (error) {

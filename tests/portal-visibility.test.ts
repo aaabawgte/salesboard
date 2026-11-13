@@ -35,7 +35,8 @@ describe('portal result visibility', () => {
               all: async () => ({ results: sql.includes('FROM sales_daily s JOIN employees') ? sales : [] }),
               first: async () => {
                 if (sql.includes('FROM user_sessions')) return user;
-                if (sql.includes('SUM(warranty_cents)')) return { cents: 0 };
+                if (sql.includes('FROM monthly_targets')) return { working_days_total: 22, warranty_target_cents: 50_000 };
+                if (sql.includes('SUM(value_cents)') && sql.includes('FROM sales_daily')) return { cents: 17_000 };
                 return null;
               }
             };
@@ -51,6 +52,7 @@ describe('portal result visibility', () => {
 
     expect(response?.status).toBe(200);
     expect(body.totalCents).toBe(17_000);
+    expect(body.target).toMatchObject({ configured: true, targetCents: 50_000, achievedCents: 17_000, remainingCents: 33_000, progress: 0.34 });
     expect(body.quantity).toBe(17);
     expect(body.daily).toEqual([
       { date: '2026-11-01', quantity: 15, cents: 15_000, value: 150 },
