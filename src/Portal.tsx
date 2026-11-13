@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { BadgeCheck, Calculator, CalendarClock, Check, ChevronRight, CircleX, Clock3, FileSpreadsheet, KeyRound, Plus, Save, ShieldCheck, Trash2, Upload, UserRoundCheck, UsersRound } from 'lucide-react';
+import { BadgeCheck, Calculator, CalendarClock, Check, ChevronRight, CircleX, Clock3, Eye, FileSpreadsheet, KeyRound, Plus, Save, ShieldCheck, Trash2, Upload, UserRoundCheck, UsersRound, X } from 'lucide-react';
 import { api, apiEndpoint } from './api';
 import type { Branch, PortalUser, TargetProgress } from './api';
 import { calculateWarranty, euroToCents } from './lib/warranty';
@@ -83,6 +83,7 @@ export function WarrantyCenter() {
   const [rules, setRules] = useState<WarrantyRule[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([blankDraft()]);
   const [error, setError] = useState('');
+  const [customerView, setCustomerView] = useState(false);
 
   async function load() {
     const ruleResult = await api<{ rules: WarrantyRule[] }>('/api/warranty-rules');
@@ -105,7 +106,121 @@ export function WarrantyCenter() {
 
   const totals = calculations.reduce((sum, item) => ({ price: sum.price + item.discountedPriceCents, warranty: sum.warranty + item.warrantyCents, total: sum.total + item.totalCents }), { price: 0, warranty: 0, total: 0 });
 
-  return <><div className="section-title"><div><span className="eyebrow">JAMSTVA</span><h1>Kalkulator jamstava</h1><p>Informativni izračun na originalnu cijenu prije popusta. Uneseni podaci se ne spremaju.</p></div></div><div className="warranty-layout"><section className="warranty-products">{drafts.map((draft, index) => { const groupRules = rules.filter(rule => rule.product_group === draft.group); const calculation = calculations[index]; return <article className="panel warranty-item" key={draft.key}><div className="panel-head"><div><span className="eyebrow">PROIZVOD {index + 1}</span><h3>Izračun {index + 1}</h3></div>{drafts.length > 1 && <button className="icon-button danger" onClick={() => setDrafts(current => current.filter(item => item.key !== draft.key))} aria-label={`Ukloni proizvod ${index + 1}`}><Trash2 size={16}/></button>}</div><div className="form-grid"><label>Grupa<select value={draft.group} onChange={event => { const group = event.target.value as Draft['group']; update(draft.key, { group, warrantyRuleId: String(rules.find(rule => rule.product_group === group)?.id ?? '') }); }}>{Object.entries(groupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Vrsta jamstva<select value={draft.warrantyRuleId} onChange={event => update(draft.key, { warrantyRuleId: event.target.value })}>{groupRules.map(rule => <option key={rule.id} value={rule.id}>{rule.name} · {rule.rate_basis_points / 100}%</option>)}</select></label><label>Originalna cijena (€)<input inputMode="decimal" value={draft.originalPrice} onChange={event => update(draft.key, { originalPrice: event.target.value })} placeholder="0,00"/></label><label>Popust<select value={draft.discountType} onChange={event => update(draft.key, { discountType: event.target.value as Draft['discountType'], discountValue: '' })}><option value="none">Bez popusta</option><option value="percent">Postotak (%)</option><option value="fixed">Fiksno (€)</option></select></label>{draft.discountType !== 'none' && <label>Vrijednost popusta<input inputMode="decimal" value={draft.discountValue} onChange={event => update(draft.key, { discountValue: event.target.value })} placeholder="0"/></label>}<label className="wide installment-field"><span className="installment-label"><span>Rate</span><strong>{Number(draft.installments) === 1 ? 'Odjednom' : `${draft.installments} rata`}</strong></span><input className="installment-slider" type="range" min="1" max="36" step="1" value={draft.installments} onChange={event => update(draft.key, { installments: event.target.value })}/><span className="installment-ticks" aria-hidden>{installmentTicks.map(value => <span key={value}>{value}</span>)}</span></label></div><div className="calculation-strip"><span>Proizvod nakon popusta <strong>{money(calculation.discountedPriceCents)}</strong></span><span>Jamstvo <strong>{money(calculation.warrantyCents)}</strong></span><span>Ukupno <strong>{money(calculation.totalCents)}</strong></span><span>Po rati <strong>{money(calculation.installmentCents)}</strong></span></div></article>; })}<button className="add-product" onClick={() => setDrafts(current => [...current, blankDraft()])}><Plus size={17}/> Dodaj još jedan proizvod</button></section><aside className="panel warranty-summary"><Calculator size={24}/><span className="eyebrow">SAŽETAK PONUDE</span><div><small>Proizvodi nakon popusta</small><strong>{money(totals.price)}</strong></div><div><small>Jamstva</small><strong>{money(totals.warranty)}</strong></div><div className="summary-total"><small>Ukupno</small><strong>{money(totals.total)}</strong></div><p className="calculator-note">Izračun je informativan i ne utječe na rezultate ili poredak.</p>{error && <p className="form-error">{error}</p>}</aside></div></>;
+  const customerRows = drafts.map((draft, index) => {
+    const calculation = calculations[index];
+    const installments = Math.max(1, Number(draft.installments));
+    const withoutWarrantyCents = Math.round(calculation.discountedPriceCents / installments);
+    const rule = rules.find(item => item.id === Number(draft.warrantyRuleId));
+    return {
+      key: draft.key,
+      label: drafts.length === 1 ? 'Odabrani proizvod' : `Proizvod ${index + 1}`,
+      warrantyName: rule?.name ?? 'Dodatno jamstvo',
+      installments,
+      priceCents: calculation.discountedPriceCents,
+      totalCents: calculation.totalCents,
+      withoutWarrantyCents,
+      withWarrantyCents: calculation.installmentCents,
+      differenceCents: calculation.installmentCents - withoutWarrantyCents,
+    };
+  });
+
+  return <>
+    <div className="section-title">
+      <div>
+        <span className="eyebrow">JAMSTVA</span>
+        <h1>Kalkulator jamstava</h1>
+        <p>Informativni izračun na originalnu cijenu prije popusta. Uneseni podaci se ne spremaju.</p>
+      </div>
+      <button className="secondary-button customer-view-button" type="button" onClick={() => setCustomerView(true)}>
+        <Eye size={17}/> Prikaz za kupca
+      </button>
+    </div>
+
+    <div className="warranty-layout">
+      <section className="warranty-products">
+        {drafts.map((draft, index) => {
+          const groupRules = rules.filter(rule => rule.product_group === draft.group);
+          const calculation = calculations[index];
+          const installmentCount = Math.max(1, Number(draft.installments));
+          const baseInstallment = Math.round(calculation.discountedPriceCents / installmentCount);
+
+          return <article className="panel warranty-item" key={draft.key}>
+            <div className="panel-head">
+              <div><span className="eyebrow">PROIZVOD {index + 1}</span><h3>Izračun {index + 1}</h3></div>
+              {drafts.length > 1 && <button className="icon-button danger" onClick={() => setDrafts(current => current.filter(item => item.key !== draft.key))} aria-label={`Ukloni proizvod ${index + 1}`}><Trash2 size={16}/></button>}
+            </div>
+            <div className="form-grid">
+              <label>Grupa<select value={draft.group} onChange={event => { const group = event.target.value as Draft['group']; update(draft.key, { group, warrantyRuleId: String(rules.find(rule => rule.product_group === group)?.id ?? '') }); }}>{Object.entries(groupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label>Vrsta jamstva<select value={draft.warrantyRuleId} onChange={event => update(draft.key, { warrantyRuleId: event.target.value })}>{groupRules.map(rule => <option key={rule.id} value={rule.id}>{rule.name} · {rule.rate_basis_points / 100}%</option>)}</select></label>
+              <label>Originalna cijena (€)<input inputMode="decimal" value={draft.originalPrice} onChange={event => update(draft.key, { originalPrice: event.target.value })} placeholder="0,00"/></label>
+              <label>Popust<select value={draft.discountType} onChange={event => update(draft.key, { discountType: event.target.value as Draft['discountType'], discountValue: '' })}><option value="none">Bez popusta</option><option value="percent">Postotak (%)</option><option value="fixed">Fiksno (€)</option></select></label>
+              {draft.discountType !== 'none' && <label>Vrijednost popusta<input inputMode="decimal" value={draft.discountValue} onChange={event => update(draft.key, { discountValue: event.target.value })} placeholder="0"/></label>}
+              <label className="wide installment-field">
+                <span className="installment-label"><span>Rate</span><strong>{Number(draft.installments) === 1 ? 'Odjednom' : `${draft.installments} rata`}</strong></span>
+                <input className="installment-slider" type="range" min="1" max="36" step="1" value={draft.installments} onChange={event => update(draft.key, { installments: event.target.value })}/>
+                <span className="installment-ticks" aria-hidden>{installmentTicks.map(value => <span key={value}>{value}</span>)}</span>
+              </label>
+            </div>
+            <div className="calculation-strip">
+              <span>Proizvod nakon popusta <strong>{money(calculation.discountedPriceCents)}</strong></span>
+              <span>Jamstvo <strong>{money(calculation.warrantyCents)}</strong></span>
+              <span>Ukupno <strong>{money(calculation.totalCents)}</strong></span>
+              <span>Rata bez jamstva <strong>{money(baseInstallment)}</strong></span>
+              <span>Rata s jamstvom <strong>{money(calculation.installmentCents)}</strong></span>
+            </div>
+          </article>;
+        })}
+        <button className="add-product" onClick={() => setDrafts(current => [...current, blankDraft()])}><Plus size={17}/> Dodaj još jedan proizvod</button>
+      </section>
+
+      <aside className="panel warranty-summary">
+        <Calculator size={24}/><span className="eyebrow">SAŽETAK PONUDE</span>
+        <div><small>Proizvodi nakon popusta</small><strong>{money(totals.price)}</strong></div>
+        <div><small>Jamstva</small><strong>{money(totals.warranty)}</strong></div>
+        <div className="summary-total"><small>Ukupno</small><strong>{money(totals.total)}</strong></div>
+        <p className="calculator-note">Izračun je informativan i ne utječe na rezultate ili poredak.</p>
+        {error && <p className="form-error">{error}</p>}
+      </aside>
+    </div>
+
+    {customerView && <div className="customer-view-overlay" role="dialog" aria-modal="true" aria-labelledby="customer-view-title" onMouseDown={event => { if (event.target === event.currentTarget) setCustomerView(false); }}>
+      <section className="customer-view">
+        <header className="customer-view-head">
+          <div>
+            <span className="eyebrow">BIG BANG · INFORMATIVNA PONUDA</span>
+            <h2 id="customer-view-title">Više sigurnosti za malu razliku u rati</h2>
+            <p>Usporedite mjesečnu ratu proizvoda bez i s dodatnim jamstvom.</p>
+          </div>
+          <button className="icon-button outlined customer-view-close" type="button" onClick={() => setCustomerView(false)} aria-label="Zatvori prikaz za kupca"><X size={20}/></button>
+        </header>
+
+        <div className="customer-offer-list">
+          {customerRows.map(row => <article className="customer-offer-card" key={row.key}>
+            <div className="customer-offer-title">
+              <div><span className="eyebrow">{row.label}</span><h3>{row.warrantyName}</h3></div>
+              <span className="customer-installments">{row.installments === 1 ? 'Jednokratno' : `${row.installments} rata`}</span>
+            </div>
+            <div className="customer-rate-grid">
+              <div className="customer-rate">
+                <span>Rata bez dodatnog jamstva</span>
+                <strong>{money(row.withoutWarrantyCents)}</strong>
+              </div>
+              <div className="customer-rate with-warranty">
+                <span>Rata s dodatnim jamstvom</span>
+                <strong>{money(row.withWarrantyCents)}</strong>
+              </div>
+            </div>
+            <p className="customer-difference"><ShieldCheck size={18}/> Više sigurnosti za samo <strong>+{money(row.differenceCents)}</strong> po rati</p>
+            <div className="customer-totals">
+              <span>Cijena proizvoda <strong>{money(row.priceCents)}</strong></span>
+              <span>Ukupno s jamstvom <strong>{money(row.totalCents)}</strong></span>
+            </div>
+          </article>)}
+        </div>
+        <p className="customer-view-note">Informativni izračun. Konačni uvjeti obročne otplate ovise o odabranoj kartici i odobrenju pružatelja platne usluge.</p>
+      </section>
+    </div>}
+  </>;
 }
 
 type ShiftRequest = { id: number; request_date: string; request_type: 'morning' | 'afternoon' | 'off'; reason: string; status: 'pending' | 'approved' | 'rejected' | 'withdrawn'; manager_note: string; display_name?: string; username?: string };
